@@ -23,6 +23,12 @@ NEEDED = (
     "embed_links",
     "attach_files",
     "read_message_history",
+    # Discord refuses an overwrite that grants a permission the bot itself
+    # lacks, so locked team channels need these three even though the bot
+    # never reads or speaks in them.
+    "view_channel",
+    "connect",
+    "speak",
 )
 
 
