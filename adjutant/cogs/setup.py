@@ -326,6 +326,32 @@ def _format_creation_note(ranks: list[discord.Role], channels: list) -> str:
     return "".join(parts)
 
 
+async def apply_setup_selection(
+    bot: commands.Bot, guild: discord.Guild, *,
+    minimal_mode: bool, audit_channel_id: int | None, features: set[str],
+    template_key: str = templates_service.DEFAULT_TEMPLATE_KEY,
+    create_default_ladder: bool = False,
+) -> tuple[list[discord.Role], list]:
+    """Save guild config, then apply a template — or, when the chosen
+    template supplies no ladder of its own, fall back to the legacy
+    default-ladder toggle. This is what /setup run's wizard and /setup
+    quick both reduce to; deliberately importable (like build_team in
+    teams.py) so a future hub panel calls this directly instead of
+    re-deriving the template-vs-default-ladder branching itself.
+
+    Returns (created_ranks, created_channels).
+    """
+    await _save_guild_config(
+        bot, guild.id, minimal_mode=minimal_mode, audit_channel_id=audit_channel_id, features=features,
+    )
+    tmpl = templates_service.TEMPLATES.get(template_key, templates_service.TEMPLATES[templates_service.DEFAULT_TEMPLATE_KEY])
+    if tmpl.ranks or tmpl.channels:
+        return await _apply_template(bot, guild, tmpl)
+    if create_default_ladder:
+        return await _create_default_ladder(bot, guild), []
+    return [], []
+
+
 class SetupView(view_util.ErrorHandledView):
     """Stateful wizard: builds up guild config across several interactions
     on one ephemeral message, then writes it all on Finish."""
@@ -411,18 +437,11 @@ class SetupView(view_util.ErrorHandledView):
 
     @discord.ui.button(label="Finish", style=discord.ButtonStyle.success, row=4)
     async def finish(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await _save_guild_config(
-            self.bot, self.guild.id,
+        created_ranks, created_channels = await apply_setup_selection(
+            self.bot, self.guild,
             minimal_mode=self.minimal_mode, audit_channel_id=self.audit_channel_id, features=self.features,
+            template_key=self.template_key, create_default_ladder=self.create_default_ladder,
         )
-
-        tmpl = templates_service.TEMPLATES[self.template_key]
-        created_ranks: list[discord.Role] = []
-        created_channels: list = []
-        if tmpl.ranks or tmpl.channels:
-            created_ranks, created_channels = await _apply_template(self.bot, self.guild, tmpl)
-        elif self.create_default_ladder:
-            created_ranks = await _create_default_ladder(self.bot, self.guild)
 
         for item in self.children:
             item.disabled = True  # type: ignore[attr-defined]
@@ -582,10 +601,9 @@ class SetupCog(commands.GroupCog, group_name="setup"):
             )
             return
 
-        tmpl = None
+        template_key = templates_service.DEFAULT_TEMPLATE_KEY
         if template.strip():
-            tmpl = templates_service.TEMPLATES.get(template.strip().lower())
-            if tmpl is None:
+            if template.strip().lower() not in templates_service.TEMPLATES:
                 await interaction.response.send_message(
                     voice.decline(
                         f"Unknown template {template!r}. Valid: {', '.join(sorted(templates_service.TEMPLATES))}."
@@ -593,18 +611,13 @@ class SetupCog(commands.GroupCog, group_name="setup"):
                     ephemeral=True,
                 )
                 return
+            template_key = template.strip().lower()
 
-        await _save_guild_config(
-            self.bot, guild.id,
+        created_ranks, created_channels = await apply_setup_selection(
+            self.bot, guild,
             minimal_mode=minimal_mode, audit_channel_id=audit_channel.id if audit_channel else None, features=chosen,
+            template_key=template_key, create_default_ladder=create_default_ladder,
         )
-        created_ranks: list[discord.Role] = []
-        created_channels: list = []
-        if tmpl is not None and (tmpl.ranks or tmpl.channels):
-            created_ranks, created_channels = await _apply_template(self.bot, guild, tmpl)
-        elif create_default_ladder:
-            created_ranks = await _create_default_ladder(self.bot, guild)
-
         note = _format_creation_note(created_ranks, created_channels)
         await note_audit(self.bot, guild.id, f"Setup (quick): configuration saved.{note}")
         await interaction.response.send_message(f"Configuration saved.{note}", ephemeral=True)
