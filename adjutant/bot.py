@@ -11,6 +11,7 @@ from discord.ext import commands
 from .config import Config
 from . import bot_health
 from . import db as database
+from .services import guilds as guilds_service
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,15 @@ class AdjutantBot(commands.Bot):
         assert self.user is not None
         sha = self.config.git_sha[:7] if self.config.git_sha else "local"
         log.info("Reporting for duty as %s (%s) [%s]", self.user, self.user.id, sha)
+        if self.db is not None:
+            created = await guilds_service.ensure_many(self.db, (g.id for g in self.guilds))
+            if created:
+                log.info("Registered %d guild(s) not seen before", created)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        if self.db is not None:
+            await guilds_service.ensure_guild(self.db, guild.id)
+        log.info("Joined guild %s (%s)", guild.name, guild.id)
 
     async def close(self) -> None:
         if self.health_server is not None:
