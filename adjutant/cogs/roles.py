@@ -8,6 +8,7 @@ cog owns.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -22,6 +23,8 @@ from ..services import ranks as ranks_service
 from .admin import log_incident, minimal_mode, note_audit, rate_limited
 
 log = logging.getLogger(__name__)
+
+EXPIRY_INTERVAL_S = 60
 
 
 def is_guild_admin(member: discord.Member) -> bool:
@@ -226,7 +229,7 @@ class RolesCog(commands.GroupCog, group_name="rank"):
 
     # -- background expiry --------------------------------------------------
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=EXPIRY_INTERVAL_S)
     async def expire_grants(self) -> None:
         assert self.bot.db is not None
         due = await grants_service.due_expiries(self.bot.db, datetime.now(timezone.utc).replace(tzinfo=None))
@@ -246,6 +249,16 @@ class RolesCog(commands.GroupCog, group_name="rank"):
     @expire_grants.before_loop
     async def before_expire_grants(self) -> None:
         await self.bot.wait_until_ready()
+
+    @expire_grants.error
+    async def on_expire_grants_error(self, error: BaseException) -> None:
+        # discord.ext.tasks stops a loop for good once an exception escapes
+        # it. Left alone, one transient database error would mean temporary
+        # ranks silently never expire again until the bot restarts. Pause a
+        # cycle so a persistent fault can't spin, then carry on.
+        log.exception("Expiry sweep failed; restarting it", exc_info=error)
+        await asyncio.sleep(EXPIRY_INTERVAL_S)
+        self.expire_grants.restart()
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):

@@ -16,6 +16,7 @@ expire_grants loop.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -34,6 +35,7 @@ log = logging.getLogger(__name__)
 
 _REMINDER_LEAD = timedelta(minutes=30)
 _TEARDOWN_GRACE = timedelta(hours=24)
+TICKER_INTERVAL_S = 60
 
 
 def _now() -> datetime:
@@ -419,26 +421,45 @@ class EventsCog(commands.GroupCog, group_name="event"):
 
     # -- background loop ------------------------------------------------------
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=TICKER_INTERVAL_S)
     async def event_ticker(self) -> None:
         assert self.bot.db is not None
         now = _now()
 
+        # Each event is handled in isolation: one whose channel has been
+        # deleted mustn't stop reminders going out for every other event.
         for event in await events_service.events_due_reminder(self.bot.db, now, _REMINDER_LEAD):
-            await self._send_reminder(event)
+            try:
+                await self._send_reminder(event)
+            except discord.HTTPException:
+                log.warning("Could not post the reminder for event #%s; marking it done anyway", event.id)
+            # Marked either way — a reminder that can't be delivered shouldn't
+            # be retried every minute until the event starts.
             await events_service.mark_reminded(self.bot.db, event.id)
 
         for event in await events_service.events_due_teardown(self.bot.db, now - _TEARDOWN_GRACE):
             guild = self.bot.get_guild(event.guild_id)
             if guild is None:
                 continue
-            updated = await self._teardown(guild, event)
-            await self._refresh_message(updated, clear_view=True)
-            await note_audit(self.bot, event.guild_id, f"Event auto-torn-down (24h past start): #{event.id} {event.name}.")
+            try:
+                updated = await self._teardown(guild, event)
+                await self._refresh_message(updated, clear_view=True)
+                await note_audit(self.bot, event.guild_id, f"Event auto-torn-down (24h past start): #{event.id} {event.name}.")
+            except discord.HTTPException:
+                log.warning("Auto-teardown of event #%s failed; will retry next tick", event.id)
 
     @event_ticker.before_loop
     async def before_event_ticker(self) -> None:
         await self.bot.wait_until_ready()
+
+    @event_ticker.error
+    async def on_event_ticker_error(self, error: BaseException) -> None:
+        # Without this, an escaped exception stops the ticker permanently:
+        # no more reminders, no more auto-teardowns, and no sign anything
+        # is wrong. Pause one cycle so a persistent fault can't spin.
+        log.exception("Event ticker failed; restarting it", exc_info=error)
+        await asyncio.sleep(TICKER_INTERVAL_S)
+        self.event_ticker.restart()
 
     async def _send_reminder(self, event: events_service.Event) -> None:
         if event.announce_channel is None:

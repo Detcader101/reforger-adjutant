@@ -17,6 +17,7 @@ reply. `/server set-secret` re-opens the same flow for an existing link.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 
@@ -32,6 +33,8 @@ from .admin import fetchone, minimal_mode, note_audit, rate_limited
 from .roles import require_admin
 
 log = logging.getLogger(__name__)
+
+POLL_INTERVAL_S = 60
 
 _BACKEND_CHOICES = [
     app_commands.Choice(name="None (unlink, Discord-only)", value="null"),
@@ -160,7 +163,7 @@ class ServerLinkCog(commands.GroupCog, group_name="server"):
 
     # -- background polling ------------------------------------------------
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=POLL_INTERVAL_S)
     async def poll_status(self) -> None:
         for guild_id, link in list(self.links.items()):
             if isinstance(link, (NullLink, FeedLink)):
@@ -173,6 +176,15 @@ class ServerLinkCog(commands.GroupCog, group_name="server"):
     @poll_status.before_loop
     async def before_poll_status(self) -> None:
         await self.bot.wait_until_ready()
+
+    @poll_status.error
+    async def on_poll_status_error(self, error: BaseException) -> None:
+        # Per-guild failures are already handled above, so reaching here
+        # means something unexpected escaped — restart rather than leave
+        # every linked server's status frozen at its last poll.
+        log.exception("Status poll loop failed; restarting it", exc_info=error)
+        await asyncio.sleep(POLL_INTERVAL_S)
+        self.poll_status.restart()
 
     # -- Tier 3 feed listener lifecycle -------------------------------------
     #
