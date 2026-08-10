@@ -107,7 +107,10 @@ async def test_create_permission_overwrites_deny_everyone_and_allow_team_role(co
     assert bot_overwrite is not None
     assert bot_overwrite.view_channel is True
     assert bot_overwrite.manage_channels is True
-    assert bot_overwrite.manage_roles is True
+    # ...but NOT manage_roles: Discord refuses an overwrite granting that
+    # bit unless the actor is an Administrator, which made every real
+    # /team create fail with a misleading "check my role is high enough".
+    assert bot_overwrite.manage_roles is None
 
     # The child text/voice channels must not carry their own overwrite that
     # would override (or accidentally re-open) what the category just

@@ -36,6 +36,48 @@ async def _rollback(built: list) -> None:
             log.warning("Rollback could not delete %r after a failed team create", obj)
 
 
+async def build_team(
+    guild: discord.Guild, name: str, reason: str
+) -> tuple[discord.Role, discord.abc.GuildChannel, list]:
+    """Create a team's role, locked category and channels.
+
+    The counterpart to `_disband_team`, and deliberately importable: the
+    self-test harness drives this exact function, so a fix here is a fix
+    everywhere rather than something a duplicated copy can miss.
+
+    Returns (role, category, built) where `built` is everything created, in
+    creation order, for `_rollback` to undo. Raises on failure with `built`
+    reported through the exception's `.built` attribute.
+    """
+    built: list = []
+    try:
+        role = await guild.create_role(name=f"Team {name}", reason=reason)
+        built.append(role)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            role: discord.PermissionOverwrite(
+                view_channel=True, connect=True, speak=True, send_messages=True
+            ),
+        }
+        if guild.me is not None:
+            # No manage_roles here: Discord rejects an overwrite granting that
+            # bit unless the actor is a full Administrator, so including it
+            # made team creation fail outright for a correctly-permissioned
+            # bot. It was redundant anyway — guild-wide Manage Roles already
+            # applies in channels the bot can see.
+            overwrites[guild.me] = discord.PermissionOverwrite(
+                view_channel=True, manage_channels=True, connect=True
+            )
+        category = await guild.create_category(name=name, overwrites=overwrites, reason=reason)
+        built.append(category)
+        built.append(await category.create_text_channel(name="chat"))
+        built.append(await category.create_voice_channel(name="voice"))
+    except (discord.Forbidden, discord.HTTPException) as error:
+        error.built = built  # type: ignore[attr-defined]
+        raise
+    return role, category, built
+
+
 async def _disband_team(bot: commands.Bot, guild: discord.Guild, team_row: dict) -> None:
     """Deletes a team's role/category/channels and its DB row.
     Raises discord.Forbidden if Discord-side deletion is blocked partway —
@@ -114,26 +156,14 @@ class TeamsCog(commands.GroupCog, group_name="team"):
             return
 
         await interaction.response.defer(ephemeral=True)
-        # Track what we've made so a failure part-way through doesn't strand
-        # a half-built team in the server for someone to clean up by hand.
-        built: list[discord.Role | discord.abc.GuildChannel] = []
         try:
-            role = await guild.create_role(name=f"Team {name}", reason=f"Adjutant: team create by {interaction.user}")
-            built.append(role)
-            everyone_overwrite = discord.PermissionOverwrite(view_channel=False)
-            team_overwrite = discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, send_messages=True)
-            bot_overwrite = discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_roles=True, connect=True)
-            overwrites = {guild.default_role: everyone_overwrite, role: team_overwrite}
-            if guild.me is not None:
-                overwrites[guild.me] = bot_overwrite
-            category = await guild.create_category(
-                name=name, overwrites=overwrites, reason=f"Adjutant: team create by {interaction.user}"
+            role, category, built = await build_team(
+                guild, name, reason=f"Adjutant: team create by {interaction.user}"
             )
-            built.append(category)
-            built.append(await category.create_text_channel(name="chat"))
-            built.append(await category.create_voice_channel(name="voice"))
         except (discord.Forbidden, discord.HTTPException) as error:
-            await _rollback(built)
+            # Undo whatever was made before the failure, so a half-built team
+            # is never left in the server for someone to clean up by hand.
+            await _rollback(getattr(error, "built", []))
             if isinstance(error, discord.Forbidden):
                 message = voice.broken(
                     "I lack permission to create roles or channels.",

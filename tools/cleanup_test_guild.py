@@ -56,6 +56,23 @@ async def main() -> int:
                     if delete:
                         try:
                             await obj.delete(reason="Adjutant: self-test cleanup")
+                        except discord.Forbidden as exc:
+                            # A leftover channel may deny the bot view_channel,
+                            # which makes it undeletable (50001 Missing Access).
+                            # Grant ourselves access first, then retry.
+                            if isinstance(obj, discord.abc.GuildChannel):
+                                try:
+                                    await obj.set_permissions(
+                                        guild.me, view_channel=True,
+                                        reason="Adjutant: regaining access to clean up",
+                                    )
+                                    await obj.delete(reason="Adjutant: self-test cleanup")
+                                    print("    (recovered access, deleted)")
+                                    continue
+                                except discord.HTTPException as retry_exc:
+                                    exc = retry_exc  # type: ignore[assignment]
+                            print(f"    failed: {exc}")
+                            print("    -> delete this one by hand in Discord")
                         except discord.HTTPException as exc:
                             print(f"    failed: {exc}")
                 if not delete:
