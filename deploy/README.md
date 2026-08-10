@@ -22,3 +22,22 @@ systemctl enable --now reforger-adjutant.service reforger-adjutant-update.timer
 
 After that: push to `main` → live within ~2 minutes. Check what's deployed via
 `BOT_GIT_SHA` in `/opt/reforger-adjutant/.env` or `systemctl status reforger-adjutant`.
+
+## Sudoers entry for the update service
+
+`reforger-adjutant-update.service` runs `reforger-adjutant-update.sh` as the
+unprivileged `adjutant` user (not root) — the script `git pull`s and `pip
+install`s code from the repo, so it shouldn't run with root privileges any
+more than it has to. That means the script's final `systemctl restart
+reforger-adjutant.service` needs an explicit, narrowly-scoped sudoers grant;
+without it the restart silently fails and the timer just keeps re-pulling an
+already-current repo every cycle.
+
+Add this on the CT (`visudo -f /etc/sudoers.d/reforger-adjutant`):
+
+```
+adjutant ALL=(root) NOPASSWD: /usr/bin/systemctl restart reforger-adjutant.service
+```
+
+Scope it to that exact command — do not grant `systemctl` broadly, and do not
+add `NOPASSWD:ALL`.

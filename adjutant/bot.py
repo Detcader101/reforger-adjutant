@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from .config import Config
+from . import bot_health
 from . import db as database
 
 log = logging.getLogger(__name__)
@@ -31,9 +32,11 @@ class AdjutantBot(commands.Bot):
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.config = config
         self.db: aiosqlite.Connection | None = None
+        self.health_server: bot_health.BotHealthServer | None = None
 
     async def setup_hook(self) -> None:
         self.db = await database.connect(self.config.db_path)
+        self.health_server = await bot_health.maybe_start_health_server(self)
         for cog in COGS:
             try:
                 await self.load_extension(cog)
@@ -56,6 +59,8 @@ class AdjutantBot(commands.Bot):
         log.info("Reporting for duty as %s (%s) [%s]", self.user, self.user.id, sha)
 
     async def close(self) -> None:
+        if self.health_server is not None:
+            await self.health_server.stop()
         if self.db is not None:
             await self.db.close()
         await super().close()

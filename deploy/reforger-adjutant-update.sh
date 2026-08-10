@@ -17,7 +17,15 @@ git pull --ff-only origin main
 
 SHA=$(git rev-parse HEAD)
 SUBJECT=$(git log -1 --pretty=%s)
-sed -i '/^BOT_GIT_SHA=/d;/^BOT_GIT_SUBJECT=/d' .env
-printf 'BOT_GIT_SHA=%s\nBOT_GIT_SUBJECT=%s\n' "$SHA" "$SUBJECT" >> .env
 
-systemctl restart reforger-adjutant.service
+# Atomic .env rewrite: build the new file next to the real one, then
+# rename over it. A crash mid-write (disk full, OOM kill) leaves the
+# original .env untouched instead of a half-written file the bot then
+# fails to parse on its next start.
+TMP_ENV=$(mktemp .env.XXXXXX)
+grep -v -e '^BOT_GIT_SHA=' -e '^BOT_GIT_SUBJECT=' .env > "$TMP_ENV" || true
+printf 'BOT_GIT_SHA=%s\nBOT_GIT_SUBJECT=%s\n' "$SHA" "$SUBJECT" >> "$TMP_ENV"
+chmod 600 "$TMP_ENV"
+mv "$TMP_ENV" .env
+
+sudo systemctl restart reforger-adjutant.service

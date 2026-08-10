@@ -3,4 +3,6 @@ Description=reforger-adjutant auto-update run
 
 [Service]
 Type=oneshot
+User=adjutant
+Group=adjutant
 ExecStart=/usr/local/bin/reforger-adjutant-update.sh

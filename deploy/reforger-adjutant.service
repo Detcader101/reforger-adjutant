@@ -9,8 +9,8 @@ User=adjutant
 WorkingDirectory=/opt/reforger-adjutant
 ExecStart=/opt/reforger-adjutant/.venv/bin/python -m adjutant
 EnvironmentFile=/opt/reforger-adjutant/.env
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

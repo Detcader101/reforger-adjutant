@@ -4,6 +4,7 @@ Description=Poll origin/main for reforger-adjutant updates
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=2min
+RandomizedDelaySec=30s
 
 [Install]
 WantedBy=timers.target
