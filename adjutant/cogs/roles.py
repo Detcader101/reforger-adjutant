@@ -19,7 +19,7 @@ from discord.ext import commands, tasks
 from .. import voice
 from ..services import grants as grants_service
 from ..services import ranks as ranks_service
-from .admin import log_incident, minimal_mode, note_audit, rate_limited
+from .admin import handle_command_error, log_incident, minimal_mode, note_audit, rate_limited
 
 log = logging.getLogger(__name__)
 
@@ -246,6 +246,11 @@ class RolesCog(commands.GroupCog, group_name="rank"):
     @expire_grants.before_loop
     async def before_expire_grants(self) -> None:
         await self.bot.wait_until_ready()
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            return  # already messaged + logged inside the failing check
+        await handle_command_error(interaction, error)
 
 
 async def setup(bot: commands.Bot) -> None:

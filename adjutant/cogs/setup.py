@@ -16,7 +16,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from .. import voice
-from .admin import fetchone
+from .admin import fetchone, handle_command_error
 from .roles import load_ladder, require_admin
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,21 @@ FEATURE_OPTIONS = [
     discord.SelectOption(label="Map", value="map", description="Rendered map messages with markers"),
     discord.SelectOption(label="Server Link", value="serverlink", description="Game-server status integration"),
 ]
+_VALID_FEATURES = {option.value for option in FEATURE_OPTIONS}
+
+
+async def _save_guild_config(
+    bot: commands.Bot, guild_id: int, *, minimal_mode: bool, audit_channel_id: int | None, features: set[str]
+) -> None:
+    assert bot.db is not None
+    features_json = json.dumps({feature: True for feature in features})
+    await bot.db.execute(
+        "INSERT INTO guilds (guild_id, minimal_mode, audit_channel, features) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(guild_id) DO UPDATE SET minimal_mode = excluded.minimal_mode, "
+        "audit_channel = excluded.audit_channel, features = excluded.features",
+        (guild_id, int(minimal_mode), audit_channel_id, features_json),
+    )
+    await bot.db.commit()
 
 
 async def _create_default_ladder(bot: commands.Bot, guild: discord.Guild) -> list[discord.Role]:
@@ -94,6 +109,9 @@ class SetupView(discord.ui.View):
             except discord.HTTPException:
                 pass
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        await handle_command_error(interaction, error)
+
     def summary_embed(self) -> discord.Embed:
         features = ", ".join(sorted(self.features)) or "none selected"
         audit = f"<#{self.audit_channel_id}>" if self.audit_channel_id else "not set"
@@ -130,15 +148,10 @@ class SetupView(discord.ui.View):
 
     @discord.ui.button(label="Finish", style=discord.ButtonStyle.success, row=3)
     async def finish(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        assert self.bot.db is not None
-        features_json = json.dumps({feature: True for feature in self.features})
-        await self.bot.db.execute(
-            "INSERT INTO guilds (guild_id, minimal_mode, audit_channel, features) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(guild_id) DO UPDATE SET minimal_mode = excluded.minimal_mode, "
-            "audit_channel = excluded.audit_channel, features = excluded.features",
-            (self.guild.id, int(self.minimal_mode), self.audit_channel_id, features_json),
+        await _save_guild_config(
+            self.bot, self.guild.id,
+            minimal_mode=self.minimal_mode, audit_channel_id=self.audit_channel_id, features=self.features,
         )
-        await self.bot.db.commit()
 
         created_ranks: list[discord.Role] = []
         if self.create_default_ladder:
@@ -197,6 +210,50 @@ class SetupCog(commands.GroupCog, group_name="setup"):
             embed=voice.embed("Current Setup", lines, minimal=bool(row["minimal_mode"])), ephemeral=True
         )
 
+    @app_commands.command(name="quick", description="Configure without the wizard UI — for when components aren't working.")
+    @app_commands.describe(
+        features="Comma-separated: teams, events, map, serverlink (omit for none)",
+        audit_channel="Audit log channel",
+        minimal_mode="Strip decorative output",
+        create_default_ladder="Also create the default Recruit-through-Command rank ladder",
+    )
+    @require_admin()
+    async def quick(
+        self,
+        interaction: discord.Interaction,
+        features: str = "",
+        audit_channel: discord.TextChannel | None = None,
+        minimal_mode: bool = False,
+        create_default_ladder: bool = False,
+    ) -> None:
+        guild = interaction.guild
+        assert guild is not None
+        chosen = {f.strip().lower() for f in features.split(",") if f.strip()}
+        invalid = chosen - _VALID_FEATURES
+        if invalid:
+            await interaction.response.send_message(
+                voice.decline(
+                    f"Unknown feature(s): {', '.join(sorted(invalid))}. Valid: {', '.join(sorted(_VALID_FEATURES))}."
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await _save_guild_config(
+            self.bot, guild.id,
+            minimal_mode=minimal_mode, audit_channel_id=audit_channel.id if audit_channel else None, features=chosen,
+        )
+        created_ranks: list[discord.Role] = []
+        if create_default_ladder:
+            created_ranks = await _create_default_ladder(self.bot, guild)
+        note = f" Default ladder created: {', '.join(r.name for r in created_ranks)}." if created_ranks else ""
+        await interaction.response.send_message(f"Configuration saved.{note}", ephemeral=True)
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            return
+        await handle_command_error(interaction, error)
+
 
 class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
     guild_name_input: discord.ui.TextInput = discord.ui.TextInput(label="Type this server's exact name to confirm")
@@ -217,6 +274,9 @@ class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
         await interaction.response.defer(ephemeral=True)
         summary = await _teardown(self.bot, self.guild)
         await interaction.followup.send(f"Teardown complete. {summary}", ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await handle_command_error(interaction, error)
 
 
 class TeardownConfirmView(discord.ui.View):
@@ -248,6 +308,9 @@ class TeardownConfirmView(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.stop()
         await interaction.response.edit_message(content="Stood down. Nothing changed.", view=None)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        await handle_command_error(interaction, error)
 
 
 async def _teardown(bot: commands.Bot, guild: discord.Guild) -> str:
@@ -306,6 +369,11 @@ class TeardownCog(commands.Cog, name="teardown"):
             ephemeral=True,
         )
         view.message = await interaction.original_response()
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            return
+        await handle_command_error(interaction, error)
 
 
 async def setup(bot: commands.Bot) -> None:

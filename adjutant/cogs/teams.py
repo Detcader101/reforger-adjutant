@@ -8,17 +8,40 @@ cross-references other teams' rosters or channels.
 
 from __future__ import annotations
 
+import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from .. import voice
-from .admin import fetchone, rate_limited
+from .admin import fetchone, handle_command_error, rate_limited
 from .roles import require_permission
+
+log = logging.getLogger(__name__)
+
+
+async def _disband_team(bot: commands.Bot, guild: discord.Guild, team_row: dict) -> None:
+    """Deletes a team's role/category/channels and its DB row.
+    Raises discord.Forbidden if Discord-side deletion is blocked partway —
+    callers decide how to report that."""
+    assert bot.db is not None
+    category = guild.get_channel(team_row["category_id"])
+    role = guild.get_role(team_row["role_id"])
+    if isinstance(category, discord.CategoryChannel):
+        for channel in list(category.channels):
+            await channel.delete(reason="Adjutant: team disbanded")
+        await category.delete(reason="Adjutant: team disbanded")
+    if role is not None:
+        await role.delete(reason="Adjutant: team disbanded")
+
+    await bot.db.execute("DELETE FROM teams WHERE id = ?", (team_row["id"],))
+    await bot.db.commit()
 
 
 class DisbandConfirmView(discord.ui.View):
-    """Deletes a team's role/category/channels and DB row on confirm."""
+    """Button-driven confirmation for /team disband. Every button-driven
+    flow keeps a slash-command fallback too — see disband(..., confirm=)."""
 
     def __init__(self, bot: commands.Bot, team_row: dict, timeout: float = 60.0):
         super().__init__(timeout=timeout)
@@ -35,28 +58,21 @@ class DisbandConfirmView(discord.ui.View):
             except discord.HTTPException:
                 pass
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        await handle_command_error(interaction, error)
+
     @discord.ui.button(label="Disband", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         guild = interaction.guild
-        assert guild is not None and self.bot.db is not None
-        category = guild.get_channel(self.team["category_id"])
-        role = guild.get_role(self.team["role_id"])
+        assert guild is not None
         try:
-            if isinstance(category, discord.CategoryChannel):
-                for channel in list(category.channels):
-                    await channel.delete(reason="Adjutant: team disbanded")
-                await category.delete(reason="Adjutant: team disbanded")
-            if role is not None:
-                await role.delete(reason="Adjutant: team disbanded")
+            await _disband_team(self.bot, guild, self.team)
         except discord.Forbidden:
             await interaction.response.edit_message(
                 content=voice.broken("Couldn't remove everything.", "Check my permissions and tidy up the rest manually."),
                 view=None,
             )
             return
-
-        await self.bot.db.execute("DELETE FROM teams WHERE id = ?", (self.team["id"],))
-        await self.bot.db.commit()
         await interaction.response.edit_message(
             content=f"**{self.team['name']}** stood down. Role and channels removed.", view=None
         )
@@ -117,9 +133,12 @@ class TeamsCog(commands.GroupCog, group_name="team"):
         await interaction.followup.send(f"Stood up **{name}** — role, category, and channels are live.", ephemeral=True)
 
     @app_commands.command(name="disband", description="Disband a team: removes its role, category, and channels.")
-    @app_commands.describe(name="Team name")
+    @app_commands.describe(
+        name="Team name",
+        confirm="Skip the button confirmation and disband immediately — for when components aren't working",
+    )
     @require_permission("teams.manage")
-    async def disband(self, interaction: discord.Interaction, name: str) -> None:
+    async def disband(self, interaction: discord.Interaction, name: str, confirm: bool = False) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
         team = await fetchone(self.bot.db, "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, name))
@@ -127,9 +146,22 @@ class TeamsCog(commands.GroupCog, group_name="team"):
             await interaction.response.send_message(voice.decline(f"No team called **{name}** on record."), ephemeral=True)
             return
 
+        if confirm:
+            try:
+                await _disband_team(self.bot, guild, dict(team))
+            except discord.Forbidden:
+                await interaction.response.send_message(
+                    voice.broken("Couldn't remove everything.", "Check my permissions and tidy up the rest manually."),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_message(f"**{name}** stood down. Role and channels removed.", ephemeral=True)
+            return
+
         view = DisbandConfirmView(self.bot, dict(team))
         await interaction.response.send_message(
-            f"Confirm: disband **{name}**? This removes its role, category, and channels — it cannot be undone.",
+            f"Confirm: disband **{name}**? This removes its role, category, and channels — it cannot be undone.\n"
+            "(Or rerun with `confirm: True` to skip this button.)",
             view=view,
             ephemeral=True,
         )
@@ -186,6 +218,11 @@ class TeamsCog(commands.GroupCog, group_name="team"):
             )
             return
         await interaction.response.send_message(f"{member.mention} is off **{team}**.", ephemeral=True)
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            return  # already messaged + logged inside the failing check
+        await handle_command_error(interaction, error)
 
 
 async def setup(bot: commands.Bot) -> None:

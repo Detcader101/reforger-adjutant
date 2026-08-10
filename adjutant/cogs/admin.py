@@ -67,6 +67,26 @@ async def log_incident(bot: commands.Bot, guild_id: int, user_id: int, kind: str
         await note_audit(bot, guild_id, f"Rate limit hit: <@{user_id}> on `{detail}`.")
 
 
+async def handle_command_error(interaction: discord.Interaction, error: Exception) -> None:
+    """Thin, on-brand fallback for uncaught errors in commands/Views/Modals.
+
+    Placeholder for the ported view_util.handle_app_command_error (with
+    correlation IDs) — swap call sites over to that once it lands; until
+    then this keeps every cog's failure mode honest per SPEC principle 5
+    (state what's broken, plainly, in-channel) instead of a silent hang.
+    """
+    command_name = interaction.command.qualified_name if interaction.command else "?"
+    log.exception("Unhandled error in %s", command_name, exc_info=error)
+    message = voice.broken("Something went wrong on my end.", "Try again in a moment; if it persists, flag it to an admin.")
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except discord.HTTPException:
+        log.warning("Failed to report error to user for %s", command_name)
+
+
 def rate_limited():
     """app_commands check: one token bucket per (guild, user, command).
     Denials are ephemeral, logged as an incident, and mirrored to audit."""
@@ -122,6 +142,11 @@ class AdminCog(commands.Cog, name="admin"):
         await interaction.response.send_message(
             embed=voice.embed("Recent Incidents", lines, minimal=minimal), ephemeral=True
         )
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            return
+        await handle_command_error(interaction, error)
 
 
 async def setup(bot: commands.Bot) -> None:
