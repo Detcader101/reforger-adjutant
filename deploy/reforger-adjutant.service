@@ -1,0 +1,16 @@
+[Unit]
+Description=Adjutant - Arma Reforger Discord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=adjutant
+WorkingDirectory=/opt/reforger-adjutant
+ExecStart=/opt/reforger-adjutant/.venv/bin/python -m adjutant
+EnvironmentFile=/opt/reforger-adjutant/.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

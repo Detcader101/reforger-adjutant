@@ -1,0 +1,6 @@
+[Unit]
+Description=reforger-adjutant auto-update run
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/reforger-adjutant-update.sh

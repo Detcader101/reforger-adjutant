@@ -1,0 +1,5 @@
+discord.py>=2.4,<3
+aiosqlite>=0.20
+python-dotenv>=1.0
+Pillow>=10.4
+python-a2s>=1.3

@@ -1,0 +1,9 @@
+[Unit]
+Description=Poll origin/main for reforger-adjutant updates
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
