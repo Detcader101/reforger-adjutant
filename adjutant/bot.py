@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 
 COGS = (
     "adjutant.cogs.setup",
+    "adjutant.cogs.config",
     "adjutant.cogs.roles",
     "adjutant.cogs.teams",
     "adjutant.cogs.events",
