@@ -16,15 +16,18 @@ Discord plumbing and DB reads/writes.
 from __future__ import annotations
 
 import io
+import logging
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .. import voice
+from .. import view_util, voice
 from ..services import mapping as mapping_service
 from .admin import fetchone, note_audit, rate_limited
 from .roles import require_permission
+
+log = logging.getLogger(__name__)
 
 _TERRAIN_CHOICES = [
     app_commands.Choice(name=info.display_name, value=slug) for slug, info in mapping_service.TERRAINS.items()
@@ -205,6 +208,13 @@ class MapCog(commands.GroupCog, group_name="map"):
 
         await note_audit(self.bot, guild.id, f"Map cleared by <@{interaction.user.id}>: {summary}")
         await interaction.followup.send(summary, ephemeral=True)
+
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            return
+        await view_util.handle_app_command_error(interaction, error, log)
 
 
 async def setup(bot: commands.Bot) -> None:

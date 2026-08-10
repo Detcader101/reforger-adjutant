@@ -15,8 +15,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .. import voice
-from .admin import fetchone, handle_command_error
+from .. import view_util, voice
+from .admin import fetchone
 from .roles import load_ladder, require_admin
 
 log = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ async def _create_default_ladder(bot: commands.Bot, guild: discord.Guild) -> lis
     return created
 
 
-class SetupView(discord.ui.View):
+class SetupView(view_util.ErrorHandledView):
     """Stateful wizard: builds up guild config across several interactions
     on one ephemeral message, then writes it all on Finish."""
 
@@ -108,9 +108,6 @@ class SetupView(discord.ui.View):
                 await self.message.edit(content="Setup timed out. Run `/setup run` again when ready.", embed=None, view=None)
             except discord.HTTPException:
                 pass
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        await handle_command_error(interaction, error)
 
     def summary_embed(self) -> discord.Embed:
         features = ", ".join(sorted(self.features)) or "none selected"
@@ -252,7 +249,7 @@ class SetupCog(commands.GroupCog, group_name="setup"):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return
-        await handle_command_error(interaction, error)
+        await view_util.handle_app_command_error(interaction, error, log)
 
 
 class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
@@ -276,10 +273,10 @@ class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
         await interaction.followup.send(f"Teardown complete. {summary}", ephemeral=True)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        await handle_command_error(interaction, error)
+        await view_util.handle_app_command_error(interaction, error, log)
 
 
-class TeardownConfirmView(discord.ui.View):
+class TeardownConfirmView(view_util.ErrorHandledView):
     def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 60.0):
         super().__init__(timeout=timeout)
         self.bot = bot
@@ -308,9 +305,6 @@ class TeardownConfirmView(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.stop()
         await interaction.response.edit_message(content="Stood down. Nothing changed.", view=None)
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        await handle_command_error(interaction, error)
 
 
 async def _teardown(bot: commands.Bot, guild: discord.Guild) -> str:
@@ -373,7 +367,7 @@ class TeardownCog(commands.Cog, name="teardown"):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return
-        await handle_command_error(interaction, error)
+        await view_util.handle_app_command_error(interaction, error, log)
 
 
 async def setup(bot: commands.Bot) -> None:

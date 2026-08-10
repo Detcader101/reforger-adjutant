@@ -16,10 +16,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from .. import voice
+from .. import view_util, voice
 from ..services import grants as grants_service
 from ..services import ranks as ranks_service
-from .admin import handle_command_error, log_incident, minimal_mode, note_audit, rate_limited
+from .admin import log_incident, minimal_mode, note_audit, rate_limited
 
 log = logging.getLogger(__name__)
 
@@ -250,7 +250,7 @@ class RolesCog(commands.GroupCog, group_name="rank"):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return  # already messaged + logged inside the failing check
-        await handle_command_error(interaction, error)
+        await view_util.handle_app_command_error(interaction, error, log)
 
 
 async def setup(bot: commands.Bot) -> None:

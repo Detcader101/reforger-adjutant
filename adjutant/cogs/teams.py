@@ -14,8 +14,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .. import voice
-from .admin import fetchone, handle_command_error, rate_limited
+from .. import view_util, voice
+from .admin import fetchone, rate_limited
 from .roles import require_permission
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ async def _disband_team(bot: commands.Bot, guild: discord.Guild, team_row: dict)
     await bot.db.commit()
 
 
-class DisbandConfirmView(discord.ui.View):
+class DisbandConfirmView(view_util.ErrorHandledView):
     """Button-driven confirmation for /team disband. Every button-driven
     flow keeps a slash-command fallback too — see disband(..., confirm=)."""
 
@@ -57,9 +57,6 @@ class DisbandConfirmView(discord.ui.View):
                 await self.message.edit(content="Confirmation timed out. Nothing was changed.", view=None)
             except discord.HTTPException:
                 pass
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        await handle_command_error(interaction, error)
 
     @discord.ui.button(label="Disband", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -222,7 +219,7 @@ class TeamsCog(commands.GroupCog, group_name="team"):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return  # already messaged + logged inside the failing check
-        await handle_command_error(interaction, error)
+        await view_util.handle_app_command_error(interaction, error, log)
 
 
 async def setup(bot: commands.Bot) -> None:
