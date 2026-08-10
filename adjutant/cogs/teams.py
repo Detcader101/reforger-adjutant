@@ -9,6 +9,7 @@ cross-references other teams' rosters or channels.
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 import discord
 from discord import app_commands
@@ -19,6 +20,20 @@ from .admin import fetchone, rate_limited
 from .roles import require_permission
 
 log = logging.getLogger(__name__)
+
+
+async def _rollback(built: list) -> None:
+    """Delete objects created during a failed team build, newest first.
+
+    Best-effort by design: rollback runs because something already went
+    wrong, so a failure to delete is logged and swallowed rather than
+    replacing the original error the user needs to see.
+    """
+    for obj in reversed(built):
+        try:
+            await obj.delete(reason="Adjutant: rolling back a failed team create")
+        except discord.HTTPException:
+            log.warning("Rollback could not delete %r after a failed team create", obj)
 
 
 async def _disband_team(bot: commands.Bot, guild: discord.Guild, team_row: dict) -> None:
@@ -99,8 +114,12 @@ class TeamsCog(commands.GroupCog, group_name="team"):
             return
 
         await interaction.response.defer(ephemeral=True)
+        # Track what we've made so a failure part-way through doesn't strand
+        # a half-built team in the server for someone to clean up by hand.
+        built: list[discord.Role | discord.abc.GuildChannel] = []
         try:
             role = await guild.create_role(name=f"Team {name}", reason=f"Adjutant: team create by {interaction.user}")
+            built.append(role)
             everyone_overwrite = discord.PermissionOverwrite(view_channel=False)
             team_overwrite = discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, send_messages=True)
             bot_overwrite = discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_roles=True, connect=True)
@@ -110,23 +129,44 @@ class TeamsCog(commands.GroupCog, group_name="team"):
             category = await guild.create_category(
                 name=name, overwrites=overwrites, reason=f"Adjutant: team create by {interaction.user}"
             )
-            await category.create_text_channel(name="chat")
-            await category.create_voice_channel(name="voice")
-        except discord.Forbidden:
-            await interaction.followup.send(
-                voice.broken(
+            built.append(category)
+            built.append(await category.create_text_channel(name="chat"))
+            built.append(await category.create_voice_channel(name="voice"))
+        except (discord.Forbidden, discord.HTTPException) as error:
+            await _rollback(built)
+            if isinstance(error, discord.Forbidden):
+                message = voice.broken(
                     "I lack permission to create roles or channels.",
                     "Check my role sits high enough and has Manage Roles and Manage Channels.",
+                )
+            else:
+                message = voice.broken(
+                    "Discord refused to create the team's role or channels.",
+                    "Nothing was left behind. Check the server isn't at its channel or role limit, then try again.",
+                )
+            await interaction.followup.send(message, ephemeral=True)
+            return
+
+        try:
+            await self.bot.db.execute(
+                "INSERT INTO teams (guild_id, name, role_id, category_id) VALUES (?, ?, ?, ?)",
+                (guild.id, name, role.id, category.id),
+            )
+            await self.bot.db.commit()
+        except sqlite3.Error:
+            # A team the bot can't track is worse than no team at all: it
+            # would be invisible to /team disband and leak channels forever.
+            log.exception("Recording team %r failed; removing what was built", name)
+            await _rollback(built)
+            await interaction.followup.send(
+                voice.broken(
+                    "I couldn't record the team, so I've removed what I'd built.",
+                    "Nothing was left behind. Worth telling an admin if it happens again.",
                 ),
                 ephemeral=True,
             )
             return
 
-        await self.bot.db.execute(
-            "INSERT INTO teams (guild_id, name, role_id, category_id) VALUES (?, ?, ?, ?)",
-            (guild.id, name, role.id, category.id),
-        )
-        await self.bot.db.commit()
         await interaction.followup.send(f"Stood up **{name}** — role, category, and channels are live.", ephemeral=True)
 
     @app_commands.command(name="disband", description="Disband a team: removes its role, category, and channels.")
