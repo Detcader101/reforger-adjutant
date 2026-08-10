@@ -486,6 +486,18 @@ class RankLadderModal(discord.ui.Modal, title="Custom Rank Ladder"):
         await view_util.handle_app_command_error(interaction, error, log)
 
 
+async def ladder_embed(bot: commands.Bot, guild: discord.Guild) -> discord.Embed:
+    """The guild's ladder, junior to senior. Importable so /rank, /setup
+    ranks and the /adjutant hub all render it identically."""
+    assert bot.db is not None
+    ladder = await load_ladder(bot.db, guild.id)
+    body = (
+        "\n".join(f"{entry.position}. {entry.name}" for entry in sorted(ladder, key=lambda e: e.position))
+        if ladder else "No ladder configured yet."
+    )
+    return voice.embed("Current Rank Ladder", body, minimal=await minimal_mode(bot.db, guild.id))
+
+
 class RankLadderView(view_util.ErrorHandledView):
     """Shows the current ladder; the button opens the multi-line modal.
     /setup ranks itself is the slash-command fallback (a `ranks:` argument
@@ -520,7 +532,14 @@ class RankLadderView(view_util.ErrorHandledView):
         await interaction.response.send_modal(RankLadderModal(self.bot, self.guild))
 
 
-class SetupCog(commands.GroupCog, group_name="setup"):
+class SetupCog(
+    commands.GroupCog,
+    group_name="setup",
+    # Set explicitly: discord.py falls back to the class docstring, and
+    # Discord rejects the whole command upload if that exceeds 100 chars —
+    # so an ordinary docstring edit would break command registration.
+    group_description="Set the server up, check permissions, and edit the rank ladder.",
+):
     """/setup run — guided wizard. /setup show — current config.
     /setup check — permissions preflight. /setup ranks — custom ladder."""
 
@@ -646,14 +665,9 @@ class SetupCog(commands.GroupCog, group_name="setup"):
             )
             return
 
-        ladder = await load_ladder(self.bot.db, guild.id)
-        current = (
-            "\n".join(f"{entry.position}. {entry.name}" for entry in sorted(ladder, key=lambda e: e.position))
-            if ladder else "No ladder configured yet."
-        )
         view = RankLadderView(self.bot, guild, interaction.user.id)
         await interaction.response.send_message(
-            embed=voice.embed("Current Rank Ladder", current), view=view, ephemeral=True
+            embed=await ladder_embed(self.bot, guild), view=view, ephemeral=True
         )
         view.message = await interaction.original_response()
 

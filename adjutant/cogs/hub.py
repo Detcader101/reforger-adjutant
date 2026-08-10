@@ -97,32 +97,55 @@ class HubView(view_util.ErrorHandledView):
 
     @discord.ui.button(label="Setup", style=discord.ButtonStyle.secondary, row=1)
     async def setup_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        # TODO(team-lead): wire to setup.py's wizard entry point (the
-        # /setup command's callback, or whatever it's refactored into) —
-        # this cog stays out of setup.py while that file is being edited
-        # elsewhere, per the current work split.
+        member = interaction.user
+        guild = interaction.guild
+        if guild is None or not isinstance(member, discord.Member) or not is_guild_admin(member):
+            await decline_admin_only(interaction, detail="adjutant hub: setup")
+            return
+        # Imported here rather than at module scope: hub.py deliberately owns
+        # no cog imports, so the hub can load even if a feature cog can't.
+        from .setup import SetupView
+
+        view = SetupView(self.bot, guild, member.id)
         await interaction.response.send_message(
-            "Setup isn't wired to a button yet — run `/setup` for now.", ephemeral=True
+            embed=voice.embed(
+                "Setup",
+                "Pick a template and the features you want, then Finish. "
+                "Everything here can be changed later from Config.",
+            ),
+            view=view,
+            ephemeral=True,
         )
+        view.message = await interaction.original_response()
 
     @discord.ui.button(label="Ranks", style=discord.ButtonStyle.secondary, row=1)
     async def ranks_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        # TODO(team-lead): wire to setup.py's rank-ladder editor. The
-        # underlying logic already exists and is ready to call —
-        # RolesCog.ladder_add / RolesCog.ladder_remove in cogs/roles.py —
-        # they just lost their slash-command wrapper in this pass and are
-        # waiting for a button/modal (here, or in setup.py) to drive them.
+        member = interaction.user
+        guild = interaction.guild
+        if guild is None or not isinstance(member, discord.Member) or not is_guild_admin(member):
+            await decline_admin_only(interaction, detail="adjutant hub: ranks")
+            return
+        from .setup import RankLadderView, ladder_embed
+
+        view = RankLadderView(self.bot, guild, member.id)
         await interaction.response.send_message(
-            "Ladder editing isn't wired to a button yet — an admin can use `/rank` to view the current ladder.",
-            ephemeral=True,
+            embed=await ladder_embed(self.bot, guild), view=view, ephemeral=True
         )
+        view.message = await interaction.original_response()
 
     @discord.ui.button(label="Diagnostics", style=discord.ButtonStyle.secondary, row=1)
     async def diagnostics_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        # TODO(team-lead): wire to setup.py's preflight/diagnostics check
-        # (or adjutant/selftest.py's harness, if that's the intended
-        # target instead).
-        await interaction.response.send_message("Diagnostics isn't wired to a button yet.", ephemeral=True)
+        member = interaction.user
+        guild = interaction.guild
+        if guild is None or not isinstance(member, discord.Member) or not is_guild_admin(member):
+            await decline_admin_only(interaction, detail="adjutant hub: diagnostics")
+            return
+        from .admin import minimal_mode
+        from .setup import _preflight_embed
+
+        assert self.bot.db is not None
+        embed = _preflight_embed(guild, minimal=await minimal_mode(self.bot.db, guild.id))
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class HubCog(commands.Cog, name="HubCog"):

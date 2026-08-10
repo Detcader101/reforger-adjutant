@@ -17,6 +17,7 @@ from fakes import (
     FakeGuild,
     make_interaction,
     make_member,
+    make_role,
     reply_ephemeral,
     reply_text,
     seed_guild,
@@ -186,16 +187,67 @@ async def test_incidents_button_declines_a_non_admin(cog, bot, guild):
 
 
 # --------------------------------------------------------------------------- #
-# Placeholder buttons — obvious, non-crashing, until wired to setup.py        #
+# Setup / Ranks / Diagnostics — wired through to setup.py                     #
 # --------------------------------------------------------------------------- #
 
-async def test_setup_ranks_diagnostics_buttons_reply_without_erroring(cog, bot, guild):
+async def test_setup_button_opens_the_setup_wizard_for_an_admin(cog, bot, guild):
+    from adjutant.cogs.setup import SetupView
+
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    view, message = await _open_hub(cog, bot, guild, admin)
+    click = make_interaction(bot, guild=guild, user=admin, message=message)
+
+    await HubView.setup_button(view, click, None)
+
+    assert reply_ephemeral(click) is True
+    assert isinstance(click.response.messages[-1]["view"], SetupView)
+
+
+async def test_ranks_button_shows_the_current_ladder_for_an_admin(cog, bot, guild):
+    from adjutant.cogs.setup import RankLadderView
+
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    role = make_role("Sergeant")
+    guild.roles.append(role)
+    await bot.db.execute(
+        "INSERT INTO ranks (guild_id, role_id, position, name) VALUES (?, ?, 0, 'Sergeant')",
+        (guild.id, role.id),
+    )
+    await bot.db.commit()
+    view, message = await _open_hub(cog, bot, guild, admin)
+    click = make_interaction(bot, guild=guild, user=admin, message=message)
+
+    await HubView.ranks_button(view, click, None)
+
+    assert isinstance(click.response.messages[-1]["view"], RankLadderView)
+    assert "Sergeant" in click.response.messages[-1]["embed"].description
+
+
+async def test_diagnostics_button_reports_the_preflight(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    view, message = await _open_hub(cog, bot, guild, admin)
+    click = make_interaction(bot, guild=guild, user=admin, message=message)
+
+    await HubView.diagnostics_button(view, click, None)
+
+    embed = click.response.messages[-1]["embed"]
+    assert "permission" in (embed.description or "").lower()
+    # The preflight must never tell an owner to hand over the keys — the bot
+    # is built to run without Administrator on purpose.
+    assert "grant administrator" not in (embed.description or "").lower()
+
+
+@pytest.mark.parametrize("button_name", ["setup_button", "ranks_button", "diagnostics_button"])
+async def test_admin_only_buttons_decline_a_non_admin(cog, bot, guild, button_name):
     await seed_guild(bot.db, guild.id)
     member = make_member(guild, display_name="Anyone")
     view, message = await _open_hub(cog, bot, guild, member)
+    click = make_interaction(bot, guild=guild, user=member, message=message)
 
-    for button_name in ("setup_button", "ranks_button", "diagnostics_button"):
-        click = make_interaction(bot, guild=guild, user=member, message=message)
-        await getattr(HubView, button_name)(view, click, None)
-        assert reply_ephemeral(click) is True
-        assert reply_text(click)  # non-empty — says *something* useful
+    await getattr(HubView, button_name)(view, click, None)
+
+    assert reply_ephemeral(click) is True
+    assert "admin" in reply_text(click).lower()

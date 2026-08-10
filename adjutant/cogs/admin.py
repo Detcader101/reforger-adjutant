@@ -140,7 +140,14 @@ async def check_rate_limit(interaction: discord.Interaction, key: str) -> bool:
     return False
 
 
-class AdminCog(commands.GroupCog, group_name="admin"):
+class AdminCog(
+    commands.GroupCog,
+    group_name="admin",
+    # Explicit for the same reason as SetupCog's: the docstring fallback is
+    # capped at 100 characters by Discord, and exceeding it fails the entire
+    # command upload, not just this group.
+    group_description="Raw fallbacks for when buttons aren't working, plus the incidents ledger.",
+):
     """/admin — raw fallbacks for when a Discord component (button/select/
     modal) isn't working, plus the incidents ledger. Every subcommand here
     forwards to the exact same plain method its button/panel equivalent
