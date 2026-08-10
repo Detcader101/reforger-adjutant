@@ -110,7 +110,6 @@ def test_the_typed_command_surface_stays_small():
     """The product owner asked for a handful of memorable commands with
     buttons for the rest. This guards against drifting back into a wall of
     subcommands without someone deciding to."""
-    # Target is 8. Currently 9: /setup is still a group of subcommands
-    # pending a fold-in to the hub, after which /teardown moves under /admin.
-    names = sorted(top_level_names())
-    assert len(names) <= 9, f"top-level command surface has grown: {names}"
+    expected = {"adjutant", "admin", "event", "map", "rank", "server", "setup", "team"}
+    names = set(top_level_names())
+    assert names == expected, f"top-level command surface changed: {sorted(names)}"

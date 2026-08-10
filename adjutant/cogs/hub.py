@@ -2,14 +2,19 @@
 
 One ephemeral panel routing into the views/panels that otherwise only
 surface through their own top-level command: Config (config.py's panel
-view), Server Link (server.py's status panel), and Incidents. Setup/Ranks/
-Diagnostics are placeholders pending a follow-up pass that wires them to
-adjutant/cogs/setup.py — this cog deliberately never imports setup.py (see
-the TODO on each placeholder button), so it reaches every other cog purely
-through `bot.get_cog(...)` + `type(cog).command.callback(cog, interaction)`,
-the same pattern the test suite uses to call a command's body directly.
-That also means this file needs zero cross-cog imports at all, sidestepping
-any circular-import risk with the cogs it routes to.
+view), Server Link (server.py's status panel), and Incidents reach other
+cogs purely through `bot.get_cog(...)` + `type(cog).command.callback(cog,
+interaction)` — the same pattern the test suite uses to call a command's
+body directly — so this module needs zero module-level cross-cog imports,
+sidestepping any circular-import risk.
+
+Setup, Ranks, and Diagnostics are the one exception: they import straight
+from adjutant/cogs/setup.py (SetupView, RankLadderView, _preflight_embed),
+lazily inside each button callback rather than at module scope, so the
+import only happens when the button is actually clicked and the hub can
+still load even if setup.py can't. adjutant/cogs/admin.py's setup-related
+fallbacks (preflight/ranks/setup-quick/teardown) follow the same lazy-
+import pattern for the same reason.
 """
 
 from __future__ import annotations
@@ -27,9 +32,9 @@ log = logging.getLogger(__name__)
 
 _INTRO = (
     "At your service. Quick commands you'll use most: `/team`, `/event`, `/map`, `/rank`, "
-    "`/server` — each shows what's going on when run bare, and acts when you give it arguments. "
-    "Configuration, the server link, and the incident log live behind the buttons below; setup "
-    "and diagnostics are on their way there too."
+    "`/server`, and `/setup` — each shows what's going on when run bare, and acts when you give "
+    "it arguments. Configuration, setup, ranks, diagnostics, the server link, and the incident "
+    "log all live behind the buttons below too."
 )
 
 

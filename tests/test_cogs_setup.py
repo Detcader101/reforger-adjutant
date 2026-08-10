@@ -3,7 +3,10 @@
 Covers re-running setup (idempotency is a hard requirement — "did that
 work? let me run it again" is one of the first things a new admin does),
 the declarative setup templates in adjutant/services/templates.py, custom
-rank ladders via /setup ranks, and the /setup check permissions preflight.
+rank ladders, and the permissions preflight helpers. The bare /setup
+command itself (opening SetupView) is covered here too; its former
+subcommands — check, ranks, quick — now live as /admin fallbacks and are
+covered in tests/test_cogs_admin.py alongside the rest of that group.
 
 Note on simulating typed input: discord.ui.TextInput.value has no public
 setter (Discord fills it in when a real user submits a modal), so the
@@ -22,6 +25,7 @@ from adjutant.cogs.setup import (
     REQUIRED_PERMISSIONS,
     RankLadderModal,
     SetupCog,
+    SetupView,
     _apply_custom_ladder,
     _apply_template,
     _blocked_channels,
@@ -306,53 +310,28 @@ async def test_invalid_custom_ladder_is_declined_and_changes_nothing(bot, guild)
 
 
 # --------------------------------------------------------------------------- #
-# /setup ranks — command surface (button-flow fallback + view path)          #
+# /setup — bare command (opens SetupView; check/ranks/quick moved to /admin) #
 # --------------------------------------------------------------------------- #
 
-async def test_setup_ranks_flat_argument_applies_without_opening_the_view(cog, bot, guild):
+async def test_bare_setup_command_opens_the_wizard_for_an_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup ranks")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup")
 
-    await SetupCog.ranks.callback(cog, interaction, ranks="Recruit, Private, NCO")
+    await SetupCog.setup_command.callback(cog, interaction)
 
     assert reply_ephemeral(interaction) is True
-    assert "Recruit" in reply_text(interaction) and "NCO" in reply_text(interaction)
-    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
-    assert {r["name"] for r in rows} == {"Recruit", "Private", "NCO"}
-
-
-async def test_setup_ranks_flat_argument_declines_invalid_input(cog, bot, guild):
-    await seed_guild(bot.db, guild.id)
-    admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup ranks")
-
-    await SetupCog.ranks.callback(cog, interaction, ranks="OnlyOne")
-
-    assert reply_ephemeral(interaction) is True
-    assert "afraid not" in reply_text(interaction).lower()
-    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
-    assert rows == []
-
-
-async def test_setup_ranks_with_no_argument_opens_the_editor_view(cog, bot, guild):
-    await seed_guild(bot.db, guild.id)
-    admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup ranks")
-
-    await SetupCog.ranks.callback(cog, interaction, ranks="")
-
     call = all_replies(interaction)[-1]
-    assert call["view"] is not None
-    assert "No ladder configured yet" in reply_text(interaction)
+    assert isinstance(call["view"], SetupView)
+    assert call["embed"] is not None
 
 
-async def test_setup_ranks_is_refused_for_a_non_admin(cog, bot, guild):
+async def test_bare_setup_command_is_refused_for_a_non_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     grunt = make_member(guild, display_name="Grunt")
-    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="setup ranks")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="setup")
 
-    allowed = await run_checks(SetupCog.ranks, interaction)
+    allowed = await run_checks(SetupCog.setup_command, interaction)
 
     assert allowed is False
     assert "admin" in reply_text(interaction).lower()
@@ -376,7 +355,7 @@ async def test_rank_ladder_modal_submit_applies_the_typed_ladder(bot, guild):
 async def test_rank_ladder_modal_submit_declines_a_duplicate_ladder_and_changes_nothing(bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup ranks")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="adjutant ranks-modal")
     modal = RankLadderModal(bot, guild)
     modal.ranks_input._value = "Recruit\nrecruit"
 
@@ -388,49 +367,8 @@ async def test_rank_ladder_modal_submit_declines_a_duplicate_ladder_and_changes_
 
 
 # --------------------------------------------------------------------------- #
-# /setup quick — template parameter                                           #
-# --------------------------------------------------------------------------- #
-
-async def test_setup_quick_with_a_template_applies_its_ladder_and_channels(cog, bot, guild):
-    admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup quick")
-
-    await SetupCog.quick.callback(cog, interaction, template="vanilla")
-
-    tmpl = templates_service.TEMPLATES["vanilla"]
-    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
-    assert {r["name"] for r in rows} == set(tmpl.ranks)
-    assert any(c.name == tmpl.channels[0].category for c in guild.categories)
-
-
-async def test_setup_quick_rejects_an_unknown_template(cog, bot, guild):
-    admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup quick")
-
-    await SetupCog.quick.callback(cog, interaction, template="hardcore")
-
-    assert "afraid not" in reply_text(interaction).lower()
-    row = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
-    assert row == []  # declined before anything was saved
-
-
-async def test_setup_quick_running_twice_with_the_same_template_creates_no_duplicates(cog, bot, guild):
-    admin = _admin(guild)
-
-    await SetupCog.quick.callback(
-        cog, make_interaction(bot, guild=guild, user=admin, command_name="setup quick"), template="milsim"
-    )
-    roles_after_first = sorted(r.name for r in guild.roles)
-
-    await SetupCog.quick.callback(
-        cog, make_interaction(bot, guild=guild, user=admin, command_name="setup quick"), template="milsim"
-    )
-
-    assert sorted(r.name for r in guild.roles) == roles_after_first
-
-
-# --------------------------------------------------------------------------- #
-# /setup check — permissions preflight                                        #
+# permissions preflight — pure helpers (command entry point is /admin        #
+# preflight now; covered in tests/test_cogs_admin.py)                        #
 # --------------------------------------------------------------------------- #
 
 def test_missing_permissions_lists_only_what_is_absent():
@@ -497,25 +435,3 @@ def test_preflight_embed_names_missing_permissions_in_plain_terms(guild):
 
     assert "manage_roles" in embed.description
     assert "manage_channels" in embed.description
-
-
-async def test_setup_check_command_reports_missing_permissions(cog, bot, guild):
-    await seed_guild(bot.db, guild.id)
-    admin = _admin(guild)
-    guild.me.guild_permissions = discord.Permissions.none()
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="setup check")
-
-    await SetupCog.check.callback(cog, interaction)
-
-    assert reply_ephemeral(interaction) is True
-    assert "manage_roles" in reply_text(interaction)
-
-
-async def test_setup_check_is_refused_for_a_non_admin(cog, bot, guild):
-    await seed_guild(bot.db, guild.id)
-    grunt = make_member(guild, display_name="Grunt")
-    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="setup check")
-
-    allowed = await run_checks(SetupCog.check, interaction)
-
-    assert allowed is False

@@ -1,22 +1,31 @@
 """In-process integration tests for adjutant/cogs/admin.py: the token-bucket
 rate limiter as wired into a real app_commands check, the /admin group's
-raw-fallback forwarding (config's five commands, which this file covers —
-team-disband/rank-revoke/event-cancel/event-teardown are covered alongside
-their own cogs in test_cogs_teams.py/test_cogs_roles.py/test_cogs_events.py
-since they need those cogs' fixtures), the incidents ledger, and the
-shared error-handler path every cog's cog_app_command_error funnels
-through.
+raw-fallback forwarding (config's five commands, and the setup/teardown
+fallbacks folded out of the old /setup subcommand group, both covered in
+this file — team-disband/rank-revoke/event-cancel/event-teardown are
+covered alongside their own cogs in test_cogs_teams.py/test_cogs_roles.py/
+test_cogs_events.py since they need those cogs' fixtures), the incidents
+ledger, and the shared error-handler path every cog's cog_app_command_error
+funnels through.
 """
 from __future__ import annotations
 
 import json
 
+import discord
 import pytest
 from discord import app_commands
 from discord.app_commands import CheckFailure
 
 from adjutant.cogs.admin import AdminCog, log_incident, rate_limited
 from adjutant.cogs.config import ConfigCog
+from adjutant.cogs.setup import (
+    DEFAULT_LADDER,
+    TeardownConfirmModal,
+    TeardownConfirmView,
+    _create_default_ladder,
+)
+from adjutant.services import templates as templates_service
 from fakes import (
     FakeGuild,
     forbidden,
@@ -256,6 +265,275 @@ async def test_admin_config_fallback_reports_clearly_when_config_cog_is_not_load
 
     assert reply_ephemeral(interaction) is True
     assert "isn't loaded" in reply_text(interaction).lower()
+
+
+# --------------------------------------------------------------------------- #
+# /admin config-show — the text-only read of the configuration               #
+# --------------------------------------------------------------------------- #
+
+async def test_admin_config_show_reports_the_configuration_as_text(cog, bot, guild):
+    """The Config button is itself a component, so this is the only way to
+    read the configuration when components are what's broken."""
+    await seed_guild(bot.db, guild.id)
+    await bot.db.execute(
+        "UPDATE guilds SET features = ?, minimal_mode = 0 WHERE guild_id = ?",
+        ('{"teams": true}', guild.id),
+    )
+    await bot.db.commit()
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin config-show")
+
+    await AdminCog.config_show.callback(cog, interaction)
+
+    assert reply_ephemeral(interaction) is True
+    assert "eams" in reply_text(interaction)  # the Teams feature, however it's cased
+
+
+async def test_admin_config_show_is_refused_for_a_non_admin(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    grunt = make_member(guild, display_name="Grunt")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin config-show")
+
+    await AdminCog.config_show.callback(cog, interaction)
+
+    assert reply_ephemeral(interaction) is True
+    assert "admin" in reply_text(interaction).lower()
+
+
+# --------------------------------------------------------------------------- #
+# /admin preflight — folded out of the old /setup check                      #
+# --------------------------------------------------------------------------- #
+
+async def test_admin_preflight_reports_missing_permissions(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    guild.me.guild_permissions = discord.Permissions.none()
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin preflight")
+
+    await AdminCog.preflight.callback(cog, interaction)
+
+    assert reply_ephemeral(interaction) is True
+    assert "manage_roles" in reply_text(interaction)
+
+
+async def test_admin_preflight_is_refused_for_a_non_admin(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    grunt = make_member(guild, display_name="Grunt")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin preflight")
+
+    await AdminCog.preflight.callback(cog, interaction)
+
+    assert reply_ephemeral(interaction) is True
+    assert "admin" in reply_text(interaction).lower()
+
+
+# --------------------------------------------------------------------------- #
+# /admin ranks — folded out of the old /setup ranks                          #
+# --------------------------------------------------------------------------- #
+
+async def test_admin_ranks_argument_applies_without_opening_a_view(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin ranks")
+
+    await AdminCog.ranks.callback(cog, interaction, ranks="Recruit, Private, NCO")
+
+    assert reply_ephemeral(interaction) is True
+    assert "Recruit" in reply_text(interaction) and "NCO" in reply_text(interaction)
+    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
+    assert {r["name"] for r in rows} == {"Recruit", "Private", "NCO"}
+
+
+async def test_admin_ranks_declines_invalid_input_and_changes_nothing(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin ranks")
+
+    await AdminCog.ranks.callback(cog, interaction, ranks="OnlyOne")
+
+    assert reply_ephemeral(interaction) is True
+    assert "afraid not" in reply_text(interaction).lower()
+    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
+    assert rows == []
+
+
+async def test_admin_ranks_with_no_argument_shows_the_current_ladder_without_a_view(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin ranks")
+
+    await AdminCog.ranks.callback(cog, interaction, ranks="")
+
+    assert reply_ephemeral(interaction) is True
+    assert interaction.response.messages[-1]["view"] is None  # raw fallback: never opens a component
+    assert "No ladder configured yet" in reply_text(interaction)
+
+
+async def test_admin_ranks_is_refused_for_a_non_admin(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    grunt = make_member(guild, display_name="Grunt")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin ranks")
+
+    await AdminCog.ranks.callback(cog, interaction, ranks="Recruit, Private")
+
+    assert reply_ephemeral(interaction) is True
+    assert "admin" in reply_text(interaction).lower()
+    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
+    assert rows == []
+
+
+# --------------------------------------------------------------------------- #
+# /admin setup-quick — folded out of the old /setup quick                    #
+# --------------------------------------------------------------------------- #
+
+async def test_admin_setup_quick_with_a_template_applies_its_ladder_and_channels(cog, bot, guild):
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick")
+
+    await AdminCog.setup_quick.callback(cog, interaction, template="vanilla")
+
+    tmpl = templates_service.TEMPLATES["vanilla"]
+    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
+    assert {r["name"] for r in rows} == set(tmpl.ranks)
+    assert any(c.name == tmpl.channels[0].category for c in guild.categories)
+
+
+async def test_admin_setup_quick_rejects_an_unknown_template(cog, bot, guild):
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick")
+
+    await AdminCog.setup_quick.callback(cog, interaction, template="hardcore")
+
+    assert "afraid not" in reply_text(interaction).lower()
+    row = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert row == []  # declined before anything was saved
+
+
+async def test_admin_setup_quick_rejects_an_unknown_feature(cog, bot, guild):
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick")
+
+    await AdminCog.setup_quick.callback(cog, interaction, features="teams,mind-reading")
+
+    assert "afraid not" in reply_text(interaction).lower()
+    row = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert row == []
+
+
+async def test_admin_setup_quick_running_twice_with_the_same_template_creates_no_duplicates(cog, bot, guild):
+    admin = _admin(guild)
+
+    await AdminCog.setup_quick.callback(
+        cog, make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick"), template="milsim"
+    )
+    roles_after_first = sorted(r.name for r in guild.roles)
+
+    await AdminCog.setup_quick.callback(
+        cog, make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick"), template="milsim"
+    )
+
+    assert sorted(r.name for r in guild.roles) == roles_after_first
+
+
+async def test_admin_setup_quick_with_no_template_can_still_create_the_default_ladder(cog, bot, guild):
+    """create_default_ladder is the one /setup-quick capability that isn't a
+    direct template/feature passthrough — worth its own case so folding
+    /setup quick into /admin doesn't quietly drop it."""
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick")
+
+    await AdminCog.setup_quick.callback(cog, interaction, create_default_ladder=True)
+
+    rows = await bot.db.execute_fetchall("SELECT name FROM ranks WHERE guild_id = ?", (guild.id,))
+    assert {r["name"] for r in rows} == {name for _, name in DEFAULT_LADDER}
+
+
+async def test_admin_setup_quick_is_refused_for_a_non_admin(cog, bot, guild):
+    grunt = make_member(guild, display_name="Grunt")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin setup-quick")
+
+    await AdminCog.setup_quick.callback(cog, interaction, template="vanilla")
+
+    assert reply_ephemeral(interaction) is True
+    assert "admin" in reply_text(interaction).lower()
+    row = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert row == []
+
+
+# --------------------------------------------------------------------------- #
+# /admin teardown — moved from the old flat /teardown; confirm modal must    #
+# keep working exactly as before, it's a deliberate safety property         #
+# --------------------------------------------------------------------------- #
+
+async def test_admin_teardown_opens_the_confirm_view_for_an_admin(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin teardown")
+
+    await AdminCog.teardown.callback(cog, interaction)
+
+    assert reply_ephemeral(interaction) is True
+    view = interaction.response.messages[-1]["view"]
+    assert isinstance(view, TeardownConfirmView)
+    assert guild.name in reply_text(interaction)
+
+
+async def test_admin_teardown_is_refused_for_a_non_admin(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    grunt = make_member(guild, display_name="Grunt")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin teardown")
+
+    await AdminCog.teardown.callback(cog, interaction)
+
+    assert reply_ephemeral(interaction) is True
+    assert "admin" in reply_text(interaction).lower()
+    assert interaction.response.messages[-1]["view"] is None
+
+
+async def test_admin_teardown_confirm_flow_removes_bot_created_ranks_and_clears_config(cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    created = await _create_default_ladder(bot, guild)
+    open_interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin teardown")
+
+    await AdminCog.teardown.callback(cog, open_interaction)
+    view = open_interaction.response.messages[-1]["view"]
+    message = open_interaction.response.message
+
+    proceed_click = make_interaction(bot, guild=guild, user=admin, message=message)
+    await TeardownConfirmView.proceed(view, proceed_click, None)
+    modal = proceed_click.response.modal
+    assert isinstance(modal, TeardownConfirmModal)
+    modal.guild_name_input._value = guild.name
+
+    submit_interaction = make_interaction(bot, guild=guild, user=admin)
+    await modal.on_submit(submit_interaction)
+
+    assert "teardown complete" in reply_text(submit_interaction).lower()
+    remaining_role_ids = {r.id for r in guild.roles}
+    for role in created:
+        assert role.id not in remaining_role_ids
+    guild_rows = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert guild_rows == []
+    rank_rows = await bot.db.execute_fetchall("SELECT * FROM ranks WHERE guild_id = ?", (guild.id,))
+    assert rank_rows == []
+
+
+async def test_admin_teardown_declines_on_a_mismatched_name_and_changes_nothing(bot, guild):
+    await seed_guild(bot.db, guild.id)
+    created = await _create_default_ladder(bot, guild)
+    modal = TeardownConfirmModal(bot, guild)
+    modal.guild_name_input._value = "Not The Right Name"
+
+    submit_interaction = make_interaction(bot, guild=guild, user=_admin(guild))
+    await modal.on_submit(submit_interaction)
+
+    assert "cancelled" in reply_text(submit_interaction).lower()
+    remaining_role_ids = {r.id for r in guild.roles}
+    for role in created:
+        assert role.id in remaining_role_ids
+    guild_rows = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert len(guild_rows) == 1
 
 
 # --------------------------------------------------------------------------- #

@@ -5,7 +5,8 @@ declarative data (a Template is a rank list plus a channel scaffold);
 adding a new one is a data edit here, never a branch in the setup cog.
 The cog (adjutant/cogs/setup.py) is the thin adapter that turns a Template
 into real Discord roles/channels, and reuses `validate_ladder_names` before
-ever touching Discord for a custom /setup ranks submission.
+ever touching Discord for a custom rank ladder submitted via /admin ranks
+or the Ranks editor.
 """
 
 from __future__ import annotations

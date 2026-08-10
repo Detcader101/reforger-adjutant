@@ -18,6 +18,7 @@ from discord.ext import commands
 from .. import view_util, voice
 from ..services import config as config_service
 from ..services import ratelimit as ratelimit_service
+from ..services import templates as templates_service
 
 log = logging.getLogger(__name__)
 
@@ -155,12 +156,18 @@ class AdminCog(
     of mutating logic — this cog only adds the entry point and, where the
     original command used a declarative check, the equivalent recheck.
 
+    Also carries the setup subcommands folded out of the old /setup group:
+    preflight (Diagnostics button), ranks (Ranks button), setup-quick (the
+    old /setup quick scriptable path), and teardown (the old flat /teardown
+    command, confirm-modal untouched). /setup itself stays a single bare
+    command in adjutant/cogs/setup.py — it opens the wizard panel directly.
+
     Gating is preserved command-by-command, not blanket admin-only: team-
     disband/rank-revoke keep their original rank-based checks (teams.manage
     / roles.manage), event-cancel/event-teardown keep their original
     inline organiser-or-staff / organiser-or-admin rules unchanged, and the
-    config fallbacks + incidents keep the original Administrator-or-owner
-    gate.
+    config fallbacks + incidents + setup/teardown fallbacks keep the
+    original Administrator-or-owner gate.
     """
 
     def __init__(self, bot: commands.Bot):
@@ -292,6 +299,141 @@ class AdminCog(
             await self._missing_cog(interaction, "Config")
             return
         await cog.reset(interaction)
+
+    # -- setup (folded out of the old /setup subcommand group) ----------
+    # Imports from .setup are lazy in every method below: setup.py imports
+    # this module at ITS top (for fetchone/minimal_mode/note_audit/
+    # rate_limited), so a module-level import back the other way would be
+    # circular — same rule _check_admin/_check_permission already follow
+    # for roles.py.
+
+    @app_commands.command(name="config-show", description="Raw fallback: read the guild's full configuration as text.")
+    @app_commands.default_permissions(administrator=True)
+    async def config_show(self, interaction: discord.Interaction) -> None:
+        """The Config *button* is itself a component, so if components are
+        what's broken there'd otherwise be no way to read the configuration
+        at all — which is the one job this fallback surface exists to do.
+        Renders via config.py's own _build_summary rather than a second copy,
+        so there's still exactly one implementation to drift out of date."""
+        if not await _check_admin(interaction):
+            return
+        guild = interaction.guild
+        assert guild is not None
+        from .config import _build_summary
+
+        lines, minimal = await _build_summary(self.bot, guild)
+        await interaction.response.send_message(
+            embed=voice.embed("Configuration", lines, minimal=minimal), ephemeral=True
+        )
+
+    @app_commands.command(name="preflight", description="Raw fallback: permissions/role-hierarchy preflight without the Diagnostics button.")
+    @app_commands.default_permissions(administrator=True)
+    async def preflight(self, interaction: discord.Interaction) -> None:
+        if not await _check_admin(interaction):
+            return
+        guild = interaction.guild
+        assert guild is not None and self.bot.db is not None
+        from .setup import _preflight_embed
+
+        minimal = await minimal_mode(self.bot.db, guild.id)
+        await interaction.response.send_message(embed=_preflight_embed(guild, minimal=minimal), ephemeral=True)
+
+    @app_commands.command(name="ranks", description="Raw fallback: view or replace the rank ladder without the Ranks button.")
+    @app_commands.describe(ranks="Comma-separated ladder, lowest first — omit to view the current ladder.")
+    @app_commands.default_permissions(administrator=True)
+    @rate_limited()
+    async def ranks(self, interaction: discord.Interaction, ranks: str = "") -> None:
+        if not await _check_admin(interaction):
+            return
+        guild = interaction.guild
+        assert guild is not None and self.bot.db is not None
+        from .setup import _validate_and_apply_custom_ladder, ladder_embed
+
+        if ranks.strip():
+            names = [n.strip() for n in ranks.split(",") if n.strip()]
+            applied, problems = await _validate_and_apply_custom_ladder(self.bot, guild, names)
+            if problems:
+                await interaction.response.send_message(
+                    voice.decline("Ladder wasn't applied — " + "; ".join(problems) + "."), ephemeral=True
+                )
+                return
+            assert applied is not None
+            await interaction.response.send_message(
+                f"Ladder updated, junior to senior: {', '.join(r.name for r in applied)}.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(embed=await ladder_embed(self.bot, guild), ephemeral=True)
+
+    @app_commands.command(name="setup-quick", description="Raw fallback: configure without the wizard UI — scriptable one-shot setup.")
+    @app_commands.describe(
+        template="Starting template: minimal, vanilla, or milsim. Omit for none.",
+        features="Comma-separated: teams, events, map, serverlink (omit for none)",
+        audit_channel="Audit log channel",
+        minimal_mode="Strip decorative output",
+        create_default_ladder="Also create the default Recruit-through-Command rank ladder (ignored if `template` supplies its own)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @rate_limited()
+    async def setup_quick(
+        self,
+        interaction: discord.Interaction,
+        template: str = "",
+        features: str = "",
+        audit_channel: discord.TextChannel | None = None,
+        minimal_mode: bool = False,
+        create_default_ladder: bool = False,
+    ) -> None:
+        if not await _check_admin(interaction):
+            return
+        guild = interaction.guild
+        assert guild is not None
+        from .setup import _VALID_FEATURES, _format_creation_note, apply_setup_selection
+
+        chosen = {f.strip().lower() for f in features.split(",") if f.strip()}
+        invalid = chosen - _VALID_FEATURES
+        if invalid:
+            await interaction.response.send_message(
+                voice.decline(
+                    f"Unknown feature(s): {', '.join(sorted(invalid))}. Valid: {', '.join(sorted(_VALID_FEATURES))}."
+                ),
+                ephemeral=True,
+            )
+            return
+
+        template_key = templates_service.DEFAULT_TEMPLATE_KEY
+        if template.strip():
+            if template.strip().lower() not in templates_service.TEMPLATES:
+                await interaction.response.send_message(
+                    voice.decline(
+                        f"Unknown template {template!r}. Valid: {', '.join(sorted(templates_service.TEMPLATES))}."
+                    ),
+                    ephemeral=True,
+                )
+                return
+            template_key = template.strip().lower()
+
+        created_ranks, created_channels = await apply_setup_selection(
+            self.bot, guild,
+            minimal_mode=minimal_mode, audit_channel_id=audit_channel.id if audit_channel else None, features=chosen,
+            template_key=template_key, create_default_ladder=create_default_ladder,
+        )
+        note = _format_creation_note(created_ranks, created_channels)
+        await note_audit(self.bot, guild.id, f"Setup (quick): configuration saved.{note}")
+        await interaction.response.send_message(f"Configuration saved.{note}", ephemeral=True)
+
+    @app_commands.command(name="teardown", description="Remove all bot-created roles/categories for this guild.")
+    @app_commands.default_permissions(administrator=True)
+    async def teardown(self, interaction: discord.Interaction) -> None:
+        if not await _check_admin(interaction):
+            return
+        guild = interaction.guild
+        assert guild is not None
+        from .setup import TeardownConfirmView, teardown_warning
+
+        view = TeardownConfirmView(self.bot, guild, interaction.user.id)
+        await interaction.response.send_message(teardown_warning(guild), view=view, ephemeral=True)
+        view.message = await interaction.original_response()
 
     # -- incidents ------------------------------------------------------
 

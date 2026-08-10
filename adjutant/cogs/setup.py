@@ -1,9 +1,14 @@
-"""Guided setup wizard, config display, and guarded teardown.
+"""Guided setup wizard, plus the helpers its former subcommands folded into.
 
-Note on command shape: Discord doesn't allow a command name to be both
-directly invocable and the parent of subcommands, so the brief's "/setup"
-(wizard) + "/setup show" (status) becomes the group "/setup" with
-subcommands "run" and "show" here. /teardown stays a flat top-level command.
+/setup is a single bare command now: it opens the same guided panel as the
+/adjutant hub's Setup button (see SetupView below). What used to be /setup
+show|check|ranks|quick lives on as importable helpers here, reached through
+the hub's Config/Ranks/Diagnostics buttons or, when those aren't working,
+/admin's raw fallbacks (adjutant/cogs/admin.py) — config-show wasn't added
+there since /adjutant's Config button already renders a superset via
+config.py's _build_summary. /teardown moved the same way: its confirm
+view/modal and _teardown() stay here, unchanged, but the command entry
+point is now /admin teardown.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from discord.ext import commands
 
 from .. import view_util, voice
 from ..services import templates as templates_service
-from .admin import fetchone, minimal_mode, note_audit, rate_limited
+from .admin import minimal_mode, note_audit
 from .roles import load_ladder, require_admin
 
 log = logging.getLogger(__name__)
@@ -182,8 +187,8 @@ async def _upsert_ladder(
 ) -> list[discord.Role]:
     """Create-or-reuse a role for each (position, name) and upsert its ranks
     row. Additive: rows for ranks not present in `ladder` are left alone —
-    that's what makes re-running /setup run|quick (or applying a template
-    on top of a manually-extended ladder) always safe."""
+    that's what makes re-running /setup (or /admin setup-quick, or applying
+    a template on top of a manually-extended ladder) always safe."""
     assert bot.db is not None
     created: list[discord.Role] = []
     for position, name in ladder:
@@ -212,16 +217,17 @@ async def _upsert_ladder(
 
 
 async def _create_default_ladder(bot: commands.Bot, guild: discord.Guild) -> list[discord.Role]:
-    return await _upsert_ladder(bot, guild, DEFAULT_LADDER, reason="Adjutant: default rank ladder from /setup run")
+    return await _upsert_ladder(bot, guild, DEFAULT_LADDER, reason="Adjutant: default rank ladder from /setup")
 
 
 async def _apply_custom_ladder(bot: commands.Bot, guild: discord.Guild, names: list[str]) -> list[discord.Role]:
     """Replace the guild's entire rank ladder with `names` (lowest-first).
 
     Unlike _upsert_ladder (additive, used by templates/default), this is a
-    full replace: /setup ranks means "here is my new ladder", so stale rows
-    for ranks no longer in the list are dropped. The Discord roles behind
-    them are never touched — only the bot's own bookkeeping changes.
+    full replace: submitting a new ladder (via /admin ranks or the Ranks
+    editor) means "here is my new ladder", so stale rows for ranks no
+    longer in the list are dropped. The Discord roles behind them are
+    never touched — only the bot's own bookkeeping changes.
 
     Reuses same-named existing roles, creates missing ones, and — critically
     — carries forward bot_created for any role already tracked, so editing
@@ -241,7 +247,7 @@ async def _apply_custom_ladder(bot: commands.Bot, guild: discord.Guild, names: l
         made_it_now = role is None
         if role is None:
             try:
-                role = await guild.create_role(name=name, reason="Adjutant: custom rank ladder from /setup ranks")
+                role = await guild.create_role(name=name, reason="Adjutant: custom rank ladder from /admin ranks")
             except discord.Forbidden:
                 log.warning("Missing permission to create ladder role %s in guild %s", name, guild.id)
                 break
@@ -261,13 +267,14 @@ async def _apply_custom_ladder(bot: commands.Bot, guild: discord.Guild, names: l
 async def _validate_and_apply_custom_ladder(
     bot: commands.Bot, guild: discord.Guild, names: list[str]
 ) -> tuple[list[discord.Role] | None, list[str]]:
-    """Shared by the /setup ranks modal and its flat-command fallback.
-    Returns (roles, problems) — exactly one of which is non-empty/None."""
+    """Shared by RankLadderModal (opened from the /adjutant hub's Ranks
+    button) and /admin ranks, its flat-command fallback. Returns
+    (roles, problems) — exactly one of which is non-empty/None."""
     problems = templates_service.validate_ladder_names(names)
     if problems:
         return None, problems
     roles = await _apply_custom_ladder(bot, guild, names)
-    await note_audit(bot, guild.id, f"Rank ladder updated via /setup ranks: {', '.join(r.name for r in roles)}.")
+    await note_audit(bot, guild.id, f"Rank ladder updated: {', '.join(r.name for r in roles)}.")
     return roles, []
 
 
@@ -334,10 +341,10 @@ async def apply_setup_selection(
 ) -> tuple[list[discord.Role], list]:
     """Save guild config, then apply a template — or, when the chosen
     template supplies no ladder of its own, fall back to the legacy
-    default-ladder toggle. This is what /setup run's wizard and /setup
-    quick both reduce to; deliberately importable (like build_team in
-    teams.py) so a future hub panel calls this directly instead of
-    re-deriving the template-vs-default-ladder branching itself.
+    default-ladder toggle. This is what SetupView's Finish button and
+    /admin setup-quick both reduce to; deliberately importable (like
+    build_team in teams.py) so either caller can invoke it directly
+    instead of re-deriving the template-vs-default-ladder branching.
 
     Returns (created_ranks, created_channels).
     """
@@ -376,7 +383,7 @@ class SetupView(view_util.ErrorHandledView):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message(
-                voice.decline("This wizard belongs to whoever ran `/setup run`."), ephemeral=True
+                voice.decline("This wizard belongs to whoever opened it."), ephemeral=True
             )
             return False
         return True
@@ -386,7 +393,7 @@ class SetupView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Setup timed out. Run `/setup run` again when ready.", embed=None, view=None)
+                await self.message.edit(content="Setup timed out. Run `/setup` again when ready.", embed=None, view=None)
             except discord.HTTPException:
                 pass
 
@@ -487,7 +494,7 @@ class RankLadderModal(discord.ui.Modal, title="Custom Rank Ladder"):
 
 
 async def ladder_embed(bot: commands.Bot, guild: discord.Guild) -> discord.Embed:
-    """The guild's ladder, junior to senior. Importable so /rank, /setup
+    """The guild's ladder, junior to senior. Importable so /rank, /admin
     ranks and the /adjutant hub all render it identically."""
     assert bot.db is not None
     ladder = await load_ladder(bot.db, guild.id)
@@ -500,8 +507,9 @@ async def ladder_embed(bot: commands.Bot, guild: discord.Guild) -> discord.Embed
 
 class RankLadderView(view_util.ErrorHandledView):
     """Shows the current ladder; the button opens the multi-line modal.
-    /setup ranks itself is the slash-command fallback (a `ranks:` argument
-    skips this view entirely) — see repo convention in tests/test_cogs_teams.py."""
+    Opened from the /adjutant hub's Ranks button. /admin ranks is the
+    slash-command fallback (a `ranks:` argument applies directly and never
+    opens this view) — see repo convention in tests/test_cogs_teams.py."""
 
     def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 180.0):
         super().__init__(timeout=timeout)
@@ -513,7 +521,7 @@ class RankLadderView(view_util.ErrorHandledView):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message(
-                voice.decline("This ladder editor belongs to whoever ran `/setup ranks`."), ephemeral=True
+                voice.decline("This ladder editor belongs to whoever opened it."), ephemeral=True
             )
             return False
         return True
@@ -523,7 +531,7 @@ class RankLadderView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Ladder editor timed out. Run `/setup ranks` again when ready.", embed=None, view=None)
+                await self.message.edit(content="Ladder editor timed out. Reopen it from the Ranks button, or run `/admin ranks` again.", embed=None, view=None)
             except discord.HTTPException:
                 pass
 
@@ -532,143 +540,24 @@ class RankLadderView(view_util.ErrorHandledView):
         await interaction.response.send_modal(RankLadderModal(self.bot, self.guild))
 
 
-class SetupCog(
-    commands.GroupCog,
-    group_name="setup",
-    # Set explicitly: discord.py falls back to the class docstring, and
-    # Discord rejects the whole command upload if that exceeds 100 chars —
-    # so an ordinary docstring edit would break command registration.
-    group_description="Set the server up, check permissions, and edit the rank ladder.",
-):
-    """/setup run — guided wizard. /setup show — current config.
-    /setup check — permissions preflight. /setup ranks — custom ladder."""
+class SetupCog(commands.Cog, name="SetupCog"):
+    """/setup — bare command, opens the guided setup panel (same SetupView
+    the /adjutant hub's Setup button opens). Everything the old subcommand
+    group did lives on: /setup show → the hub's Config button (or /admin
+    config's equivalent), /setup check → the hub's Diagnostics button or
+    /admin preflight, /setup ranks → the hub's Ranks button or /admin ranks,
+    /setup quick → /admin setup-quick."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="run", description="Guided setup wizard: pick a template, features, audit channel, and options.")
+    @app_commands.command(name="setup", description="Open the guided setup wizard: pick a template, features, and options.")
     @require_admin()
-    async def run(self, interaction: discord.Interaction) -> None:
+    async def setup_command(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         assert guild is not None
         view = SetupView(self.bot, guild, interaction.user.id)
         await interaction.response.send_message(embed=view.summary_embed(), view=view, ephemeral=True)
-        view.message = await interaction.original_response()
-
-    @app_commands.command(name="show", description="Show this guild's current adjutant configuration.")
-    @require_admin()
-    async def show(self, interaction: discord.Interaction) -> None:
-        guild = interaction.guild
-        assert guild is not None and self.bot.db is not None
-        row = await fetchone(self.bot.db, "SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
-        if row is None:
-            await interaction.response.send_message(
-                voice.broken("This guild hasn't been set up yet.", "Run `/setup run` to get started."), ephemeral=True
-            )
-            return
-        features = json.loads(row["features"] or "{}")
-        enabled = ", ".join(sorted(k for k, v in features.items() if v)) or "none"
-        audit = f"<#{row['audit_channel']}>" if row["audit_channel"] else "not set"
-        ladder = await load_ladder(self.bot.db, guild.id)
-        ladder_summary = f"{len(ladder)} rank(s) configured" if ladder else "none configured"
-        lines = (
-            f"**Features:** {enabled}\n"
-            f"**Audit channel:** {audit}\n"
-            f"**Minimal mode:** {'on' if row['minimal_mode'] else 'off'}\n"
-            f"**Rank ladder:** {ladder_summary}"
-        )
-        await interaction.response.send_message(
-            embed=voice.embed("Current Setup", lines, minimal=bool(row["minimal_mode"])), ephemeral=True
-        )
-
-    @app_commands.command(name="check", description="Preflight: which permissions I hold, role hierarchy, and any channels I can't see.")
-    @require_admin()
-    async def check(self, interaction: discord.Interaction) -> None:
-        guild = interaction.guild
-        assert guild is not None and self.bot.db is not None
-        minimal = await minimal_mode(self.bot.db, guild.id)
-        await interaction.response.send_message(embed=_preflight_embed(guild, minimal=minimal), ephemeral=True)
-
-    @app_commands.command(name="quick", description="Configure without the wizard UI — for when components aren't working.")
-    @app_commands.describe(
-        features="Comma-separated: teams, events, map, serverlink (omit for none)",
-        audit_channel="Audit log channel",
-        minimal_mode="Strip decorative output",
-        create_default_ladder="Also create the default Recruit-through-Command rank ladder (ignored if `template` supplies its own)",
-        template="Starting template: minimal, vanilla, or milsim. Omit for none.",
-    )
-    @require_admin()
-    async def quick(
-        self,
-        interaction: discord.Interaction,
-        features: str = "",
-        audit_channel: discord.TextChannel | None = None,
-        minimal_mode: bool = False,
-        create_default_ladder: bool = False,
-        template: str = "",
-    ) -> None:
-        guild = interaction.guild
-        assert guild is not None
-        chosen = {f.strip().lower() for f in features.split(",") if f.strip()}
-        invalid = chosen - _VALID_FEATURES
-        if invalid:
-            await interaction.response.send_message(
-                voice.decline(
-                    f"Unknown feature(s): {', '.join(sorted(invalid))}. Valid: {', '.join(sorted(_VALID_FEATURES))}."
-                ),
-                ephemeral=True,
-            )
-            return
-
-        template_key = templates_service.DEFAULT_TEMPLATE_KEY
-        if template.strip():
-            if template.strip().lower() not in templates_service.TEMPLATES:
-                await interaction.response.send_message(
-                    voice.decline(
-                        f"Unknown template {template!r}. Valid: {', '.join(sorted(templates_service.TEMPLATES))}."
-                    ),
-                    ephemeral=True,
-                )
-                return
-            template_key = template.strip().lower()
-
-        created_ranks, created_channels = await apply_setup_selection(
-            self.bot, guild,
-            minimal_mode=minimal_mode, audit_channel_id=audit_channel.id if audit_channel else None, features=chosen,
-            template_key=template_key, create_default_ladder=create_default_ladder,
-        )
-        note = _format_creation_note(created_ranks, created_channels)
-        await note_audit(self.bot, guild.id, f"Setup (quick): configuration saved.{note}")
-        await interaction.response.send_message(f"Configuration saved.{note}", ephemeral=True)
-
-    @app_commands.command(name="ranks", description="View or replace the custom rank ladder.")
-    @app_commands.describe(
-        ranks="Comma-separated ladder, lowest first — for when buttons aren't working. Omit to open the editor."
-    )
-    @require_admin()
-    @rate_limited()
-    async def ranks(self, interaction: discord.Interaction, ranks: str = "") -> None:
-        guild = interaction.guild
-        assert guild is not None and self.bot.db is not None
-
-        if ranks.strip():
-            names = [n.strip() for n in ranks.split(",") if n.strip()]
-            applied, problems = await _validate_and_apply_custom_ladder(self.bot, guild, names)
-            if problems:
-                await interaction.response.send_message(
-                    voice.decline("Ladder wasn't applied — " + "; ".join(problems) + "."), ephemeral=True
-                )
-                return
-            assert applied is not None
-            await interaction.response.send_message(
-                f"Ladder updated, junior to senior: {', '.join(r.name for r in applied)}.", ephemeral=True
-            )
-            return
-
-        view = RankLadderView(self.bot, guild, interaction.user.id)
-        await interaction.response.send_message(
-            embed=await ladder_embed(self.bot, guild), view=view, ephemeral=True
-        )
         view.message = await interaction.original_response()
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
@@ -771,30 +660,15 @@ async def _teardown(bot: commands.Bot, guild: discord.Guild) -> str:
     return f"Removed {removed_teams} team(s) and {removed_ranks} bot-created rank role(s). Configuration cleared."
 
 
-class TeardownCog(commands.Cog, name="teardown"):
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-
-    @app_commands.command(name="teardown", description="Remove all bot-created roles/categories for this guild.")
-    @require_admin()
-    async def teardown(self, interaction: discord.Interaction) -> None:
-        guild = interaction.guild
-        assert guild is not None
-        view = TeardownConfirmView(self.bot, guild, interaction.user.id)
-        await interaction.response.send_message(
-            f"This strips out every team role/category and any bot-created rank roles in **{guild.name}**, "
-            "and clears its adjutant configuration. That is not reversible.\n\nContinue?",
-            view=view,
-            ephemeral=True,
-        )
-        view.message = await interaction.original_response()
-
-    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.CheckFailure):
-            return
-        await view_util.handle_app_command_error(interaction, error, log)
+def teardown_warning(guild: discord.Guild) -> str:
+    """Confirmation copy shown before opening TeardownConfirmView. Pulled out
+    so /admin teardown (adjutant/cogs/admin.py) doesn't have to re-derive it —
+    there's exactly one place this sentence is written."""
+    return (
+        f"This strips out every team role/category and any bot-created rank roles in **{guild.name}**, "
+        "and clears its adjutant configuration. That is not reversible.\n\nContinue?"
+    )
 
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(SetupCog(bot))
-    await bot.add_cog(TeardownCog(bot))
