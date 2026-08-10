@@ -57,15 +57,24 @@ async def _create_default_ladder(bot: commands.Bot, guild: discord.Guild) -> lis
     assert bot.db is not None
     created: list[discord.Role] = []
     for position, name in DEFAULT_LADDER:
-        try:
-            role = await guild.create_role(name=name, reason="Adjutant: default rank ladder from /setup run")
-        except discord.Forbidden:
-            log.warning("Missing permission to create default ladder role %s in guild %s", name, guild.id)
-            break
+        # Re-running /setup is common ("did that work?"). Creating blindly
+        # would leave the server with two Recruit roles, two Private roles
+        # and a rank table with two entries per position.
+        role = discord.utils.get(guild.roles, name=name)
+        made_it_now = role is None
+        if role is None:
+            try:
+                role = await guild.create_role(name=name, reason="Adjutant: default rank ladder from /setup run")
+            except discord.Forbidden:
+                log.warning("Missing permission to create default ladder role %s in guild %s", name, guild.id)
+                break
+        # bot_created is deliberately left out of the UPDATE clause: it must
+        # keep its original value so /teardown never deletes a rank role the
+        # admin made themselves and we merely adopted.
         await bot.db.execute(
-            "INSERT INTO ranks (guild_id, role_id, position, name, bot_created) VALUES (?, ?, ?, ?, 1) "
-            "ON CONFLICT(guild_id, role_id) DO UPDATE SET position = excluded.position, name = excluded.name, bot_created = 1",
-            (guild.id, role.id, position, name),
+            "INSERT INTO ranks (guild_id, role_id, position, name, bot_created) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, role_id) DO UPDATE SET position = excluded.position, name = excluded.name",
+            (guild.id, role.id, position, name, 1 if made_it_now else 0),
         )
         created.append(role)
     await bot.db.commit()
