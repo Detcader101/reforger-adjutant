@@ -156,3 +156,16 @@ def make_member(mock_guild):
             display_name=display_name, roles=roles,
         )
     return _factory
+
+
+# --------------------------------------------------------------------------- #
+# Cog-layer fakes (tests/fakes.py) — richer, isinstance()-safe stand-ins      #
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def fake_bot(tmp_conn):
+    """A FakeBot (see tests/fakes.py) wired to the same real migrated
+    connection tmp_conn hands out. Lazily imported so this fixture has zero
+    effect on the plain services tests that never request it."""
+    from fakes import FakeBot
+    return FakeBot(tmp_conn)

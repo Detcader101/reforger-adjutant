@@ -216,7 +216,10 @@ class RolesCog(commands.GroupCog, group_name="rank"):
     @rate_limited()
     async def revoke(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role) -> None:
         assert self.bot.db is not None and interaction.guild is not None
-        await grants_service.revoke_grant(self.bot.db, guild_id=interaction.guild.id, user_id=member.id, role_id=role.id)
+        # Strip the role in Discord BEFORE forgetting the grant. The other
+        # order loses the record whenever Discord refuses: the member keeps
+        # the role, nothing tracks it any more, and the expiry sweep can
+        # never reclaim it.
         try:
             await member.remove_roles(role, reason=f"Adjutant: rank revoke by {interaction.user}")
         except discord.Forbidden:
@@ -225,6 +228,7 @@ class RolesCog(commands.GroupCog, group_name="rank"):
                 ephemeral=True,
             )
             return
+        await grants_service.revoke_grant(self.bot.db, guild_id=interaction.guild.id, user_id=member.id, role_id=role.id)
         await interaction.response.send_message(f"Done. {role.mention} withdrawn from {member.mention}.", ephemeral=True)
 
     # -- background expiry --------------------------------------------------
@@ -235,15 +239,28 @@ class RolesCog(commands.GroupCog, group_name="rank"):
         due = await grants_service.due_expiries(self.bot.db, datetime.now(timezone.utc).replace(tzinfo=None))
         for due_grant in due:
             guild = self.bot.get_guild(due_grant.guild_id)
-            if guild is not None:
-                member = guild.get_member(due_grant.user_id)
-                role = guild.get_role(due_grant.role_id)
-                if member is not None and role is not None:
-                    try:
-                        await member.remove_roles(role, reason="Adjutant: temporary rank expired")
-                    except discord.HTTPException:
-                        log.warning("Failed to remove expired role %s from %s in guild %s", role.id, member.id, guild.id)
-                await note_audit(self.bot, due_grant.guild_id, f"Temp role expired: <@&{due_grant.role_id}> removed from <@{due_grant.user_id}>.")
+            member = guild.get_member(due_grant.user_id) if guild is not None else None
+            role = guild.get_role(due_grant.role_id) if guild is not None else None
+
+            if guild is not None and member is not None and role is not None:
+                try:
+                    await member.remove_roles(role, reason="Adjutant: temporary rank expired")
+                except discord.HTTPException:
+                    # Keep the grant so the next tick tries again. Dropping it
+                    # here would quietly turn a temporary rank into a permanent
+                    # one the moment the bot's role sat too low for a minute.
+                    log.warning(
+                        "Could not remove expired role %s from %s in guild %s; will retry",
+                        role.id, member.id, guild.id,
+                    )
+                    continue
+                await note_audit(
+                    self.bot,
+                    due_grant.guild_id,
+                    f"Temp role expired: <@&{due_grant.role_id}> removed from <@{due_grant.user_id}>.",
+                )
+            # Reached when the role was removed, or when the guild, member or
+            # role is gone — in every case there's nothing left to reclaim.
             await grants_service.revoke_grant_by_id(self.bot.db, due_grant.id)
 
     @expire_grants.before_loop
