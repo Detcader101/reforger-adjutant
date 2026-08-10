@@ -1,19 +1,28 @@
 """In-process integration tests for adjutant/cogs/admin.py: the token-bucket
-rate limiter as wired into a real app_commands check, the incidents ledger,
-and the shared error-handler path every cog's cog_app_command_error funnels
+rate limiter as wired into a real app_commands check, the /admin group's
+raw-fallback forwarding (config's five commands, which this file covers —
+team-disband/rank-revoke/event-cancel/event-teardown are covered alongside
+their own cogs in test_cogs_teams.py/test_cogs_roles.py/test_cogs_events.py
+since they need those cogs' fixtures), the incidents ledger, and the
+shared error-handler path every cog's cog_app_command_error funnels
 through.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
+from discord import app_commands
 from discord.app_commands import CheckFailure
 
 from adjutant.cogs.admin import AdminCog, log_incident, rate_limited
+from adjutant.cogs.config import ConfigCog
 from fakes import (
     FakeGuild,
     forbidden,
     make_interaction,
     make_member,
+    make_role,
     next_id,
     reply_ephemeral,
     reply_text,
@@ -35,6 +44,11 @@ def bot(fake_bot, guild):
 @pytest.fixture
 def cog(bot):
     return AdminCog(bot)
+
+
+@pytest.fixture
+def config_cog(bot):
+    return bot.register_cog(ConfigCog(bot))
 
 
 def _rate_limit_predicate():
@@ -92,16 +106,16 @@ async def test_rate_limiter_keeps_independent_buckets_per_command_name(bot, guil
 
 
 # --------------------------------------------------------------------------- #
-# /incidents recent                                                           #
+# /admin incidents                                                            #
 # --------------------------------------------------------------------------- #
 
-async def test_incidents_recent_returns_logged_incidents_ephemerally(cog, bot, guild):
+async def test_incidents_returns_logged_incidents_ephemerally(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = make_member(guild, display_name="Admin", is_admin=True)
     await log_incident(bot, guild.id, 424242, "permission_denied", detail="team create")
 
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="incidents recent")
-    await AdminCog.recent.callback(cog, interaction)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin incidents")
+    await AdminCog.incidents.callback(cog, interaction)
 
     assert reply_ephemeral(interaction) is True
     embed = interaction.response.messages[-1]["embed"]
@@ -109,28 +123,139 @@ async def test_incidents_recent_returns_logged_incidents_ephemerally(cog, bot, g
     assert "permission_denied" in embed.description
 
 
-async def test_incidents_recent_shows_a_clean_sheet_when_nothing_logged(cog, bot, guild):
+async def test_incidents_shows_a_clean_sheet_when_nothing_logged(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = make_member(guild, display_name="Admin", is_admin=True)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="incidents recent")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin incidents")
 
-    await AdminCog.recent.callback(cog, interaction)
+    await AdminCog.incidents.callback(cog, interaction)
 
     embed = interaction.response.messages[-1]["embed"]
     assert "clean sheet" in embed.description.lower()
 
 
-async def test_incidents_recent_is_refused_for_a_non_admin(cog, bot, guild):
+async def test_incidents_is_refused_for_a_non_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     grunt = make_member(guild, display_name="Grunt")
-    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="incidents recent")
+    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin incidents")
 
-    await AdminCog.recent.callback(cog, interaction)
+    await AdminCog.incidents.callback(cog, interaction)
 
     assert reply_ephemeral(interaction) is True
     assert "admin" in reply_text(interaction).lower()
     incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
-    assert any(i["kind"] == "permission_denied" and i["detail"] == "incidents recent" for i in incidents)
+    assert any(i["kind"] == "permission_denied" and i["detail"] == "admin incidents" for i in incidents)
+
+
+# --------------------------------------------------------------------------- #
+# /admin's config forwards: feature/audit-channel/minimal/permission/reset    #
+# --------------------------------------------------------------------------- #
+# team-disband, rank-revoke, event-cancel and event-teardown are covered in
+# test_cogs_teams.py / test_cogs_roles.py / test_cogs_events.py respectively,
+# alongside the panel-button paths they mirror.
+
+def _admin(guild):
+    return make_member(guild, display_name="Admin", is_admin=True)
+
+
+async def test_admin_feature_forwards_to_config_and_requires_admin(cog, config_cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin feature")
+
+    await AdminCog.feature.callback(
+        cog, interaction,
+        feature=app_commands.Choice(name="Teams", value="teams"),
+        state=app_commands.Choice(name="on", value="on"),
+    )
+
+    rows = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert json.loads(rows[0]["features"]) == {"teams": True}
+
+    grunt = make_member(guild, display_name="Grunt")
+    denied = make_interaction(bot, guild=guild, user=grunt, command_name="admin feature")
+    await AdminCog.feature.callback(
+        cog, denied,
+        feature=app_commands.Choice(name="Events", value="events"),
+        state=app_commands.Choice(name="on", value="on"),
+    )
+    rows2 = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert json.loads(rows2[0]["features"]) == {"teams": True}  # unchanged
+    assert reply_ephemeral(denied) is True
+
+
+async def test_admin_audit_channel_forwards_to_config(cog, config_cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    channel = guild.create_standalone_text_channel(name="audit-log")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin audit-channel")
+
+    await AdminCog.audit_channel.callback(cog, interaction, channel=channel)
+
+    rows = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert rows[0]["audit_channel"] == channel.id
+
+
+async def test_admin_minimal_forwards_to_config(cog, config_cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin minimal")
+
+    await AdminCog.minimal.callback(cog, interaction, state=app_commands.Choice(name="on", value="on"))
+
+    rows = await bot.db.execute_fetchall("SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,))
+    assert rows[0]["minimal_mode"] == 1
+
+
+async def test_admin_permission_forwards_to_config(cog, config_cog, bot, guild):
+    await seed_guild(bot.db, guild.id)
+    role = make_role("Officer")
+    guild.roles.append(role)
+    await bot.db.execute(
+        "INSERT INTO ranks (guild_id, role_id, position, name, bot_created) VALUES (?, ?, ?, ?, 0)",
+        (guild.id, role.id, 3, "Officer"),
+    )
+    await bot.db.commit()
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin permission")
+
+    await AdminCog.permission.callback(cog, interaction, key="teams.manage", min_rank=3)
+
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?", (guild.id, "teams.manage")
+    )
+    assert len(rows) == 1
+    assert rows[0]["min_rank"] == 3
+
+
+async def test_admin_reset_forwards_to_config(cog, config_cog, bot, guild):
+    await seed_guild(bot.db, guild.id, minimal_mode=True)
+    await bot.db.execute(
+        "INSERT INTO permissions (guild_id, permission, min_rank) VALUES (?, ?, ?)",
+        (guild.id, "teams.manage", 3),
+    )
+    await bot.db.commit()
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin reset")
+
+    await AdminCog.reset.callback(cog, interaction)
+
+    view = interaction.response.messages[-1]["view"]
+    assert view is not None  # ResetConfirmView — the reset flow itself is exercised in test_cogs_config.py
+
+
+async def test_admin_config_fallback_reports_clearly_when_config_cog_is_not_loaded(cog, bot, guild):
+    """Nothing registers ConfigCog on the bot in this test — confirms the
+    /admin forward degrades politely rather than raising when a cog isn't
+    up (e.g. mid-restart)."""
+    await seed_guild(bot.db, guild.id)
+    admin = _admin(guild)
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin minimal")
+
+    await AdminCog.minimal.callback(cog, interaction, state=app_commands.Choice(name="on", value="on"))
+
+    assert reply_ephemeral(interaction) is True
+    assert "isn't loaded" in reply_text(interaction).lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -139,7 +264,7 @@ async def test_incidents_recent_is_refused_for_a_non_admin(cog, bot, guild):
 
 async def test_error_handler_gives_a_generic_message_without_leaking_exception_text(cog, bot, guild):
     admin = make_member(guild, display_name="Admin", is_admin=True)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="incidents recent")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin incidents")
     leaky = ValueError("column adjutant_secret_schema_v7 does not exist")
 
     await AdminCog.cog_app_command_error(cog, interaction, leaky)
@@ -153,7 +278,7 @@ async def test_error_handler_gives_a_generic_message_without_leaking_exception_t
 
 async def test_error_handler_gives_a_specific_message_for_forbidden(cog, bot, guild):
     admin = make_member(guild, display_name="Admin", is_admin=True)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="incidents recent")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin incidents")
 
     await AdminCog.cog_app_command_error(cog, interaction, forbidden("Missing Permissions"))
 
@@ -166,7 +291,7 @@ async def test_error_handler_is_a_noop_for_check_failures(cog, bot, guild):
     """CheckFailure means a check already messaged + logged the denial —
     the shared handler must not send a second, redundant reply."""
     admin = make_member(guild, display_name="Admin", is_admin=True)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="incidents recent")
+    interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin incidents")
 
     await AdminCog.cog_app_command_error(cog, interaction, CheckFailure("denied"))
 

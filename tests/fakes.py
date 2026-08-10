@@ -468,10 +468,24 @@ class FakeBot:
     def __init__(self, db: Any):
         self.db = db
         self._guilds: dict[int, FakeGuild] = {}
+        self._cogs: dict[str, Any] = {}
 
     def register_guild(self, guild: FakeGuild) -> FakeGuild:
         self._guilds[guild.id] = guild
         return guild
+
+    def register_cog(self, cog: Any) -> Any:
+        """Registers `cog` under its `__cog_name__` (what real discord.py
+        keys get_cog() by — the class name unless overridden via the
+        `name=` kwarg passed to the Cog base). Needed by tests exercising
+        cross-cog forwarding: admin.py's /admin fallbacks and hub.py's
+        panel buttons both reach other cogs via `bot.get_cog(...)`."""
+        name = getattr(type(cog), "__cog_name__", type(cog).__name__)
+        self._cogs[name] = cog
+        return cog
+
+    def get_cog(self, name: str) -> Any:
+        return self._cogs.get(name)
 
     def get_guild(self, guild_id: int) -> FakeGuild | None:
         return self._guilds.get(guild_id)
@@ -598,6 +612,12 @@ class FakeFollowup:
             {"content": content, "embed": embed, "embeds": embeds, "view": view, "ephemeral": ephemeral,
              "message": msg}
         )
+        # Mirrors real discord.py: after response.defer(), the FIRST
+        # followup.send() is what interaction.original_response() fetches
+        # (the deferred ack is just a placeholder, not a message of its
+        # own). Only the first — later followups are separate messages.
+        if self._interaction.response.message is None:
+            self._interaction.response.message = msg
         return msg
 
 

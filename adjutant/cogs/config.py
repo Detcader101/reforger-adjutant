@@ -20,8 +20,8 @@ from .. import view_util, voice
 from ..services import config as config_service
 from ..services import guilds as guilds_service
 from ..services import ranks as ranks_service
-from .admin import fetchone, note_audit, rate_limited
-from .roles import load_ladder, load_permission_overrides, require_admin
+from .admin import fetchone, note_audit
+from .roles import load_ladder, load_permission_overrides
 
 log = logging.getLogger(__name__)
 
@@ -331,15 +331,17 @@ class ResetConfirmView(view_util.ErrorHandledView):
         await interaction.response.edit_message(content="Stood down. Nothing changed.", view=None)
 
 
-class ConfigCog(commands.GroupCog, group_name="config"):
-    """/config — inspect and edit every /setup-managed setting."""
+class ConfigCog(commands.Cog, name="ConfigCog"):
+    """No direct slash commands any more — /config's old surface now lives
+    behind /adjutant's Config button (`panel`, below) and /admin's raw
+    fallbacks (feature/audit_channel/minimal/permission/reset). Every
+    caller is responsible for its own admin recheck at the point it calls
+    in here (the /admin subcommands via @require_admin(), the hub button
+    via roles.decline_admin_only before it calls `panel`)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="show", description="Show this guild's current adjutant configuration.")
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
     async def show(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         assert guild is not None
@@ -348,9 +350,6 @@ class ConfigCog(commands.GroupCog, group_name="config"):
             embed=voice.embed("Configuration", lines, minimal=minimal), ephemeral=True
         )
 
-    @app_commands.command(name="panel", description="Open the interactive configuration panel.")
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
     async def panel(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         assert guild is not None
@@ -363,12 +362,6 @@ class ConfigCog(commands.GroupCog, group_name="config"):
         )
         view.message = await interaction.original_response()
 
-    @app_commands.command(name="feature", description="Toggle a feature on or off.")
-    @app_commands.describe(feature="Which feature", state="on or off")
-    @app_commands.choices(feature=_FEATURE_CHOICES, state=_ON_OFF_CHOICES)
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
-    @rate_limited()
     async def feature(
         self, interaction: discord.Interaction, feature: app_commands.Choice[str], state: app_commands.Choice[str]
     ) -> None:
@@ -384,11 +377,6 @@ class ConfigCog(commands.GroupCog, group_name="config"):
         )
         await interaction.response.send_message(f"Done. `{feature.value}` is now {state.value}.", ephemeral=True)
 
-    @app_commands.command(name="audit-channel", description="Set or clear the audit log channel.")
-    @app_commands.describe(channel="Channel to use for audit notes — omit to clear")
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
-    @rate_limited()
     async def audit_channel(
         self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
     ) -> None:
@@ -404,12 +392,6 @@ class ConfigCog(commands.GroupCog, group_name="config"):
         await note_audit(self.bot, guild.id, f"Config: audit channel {detail} by <@{interaction.user.id}>.")
         await interaction.response.send_message(f"Done. Audit channel {detail}.", ephemeral=True)
 
-    @app_commands.command(name="minimal", description="Toggle minimal mode (strips decorative embed colour).")
-    @app_commands.describe(state="on or off")
-    @app_commands.choices(state=_ON_OFF_CHOICES)
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
-    @rate_limited()
     async def minimal(self, interaction: discord.Interaction, state: app_commands.Choice[str]) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
@@ -421,11 +403,6 @@ class ConfigCog(commands.GroupCog, group_name="config"):
         await note_audit(self.bot, guild.id, f"Config: minimal mode {state.value} by <@{interaction.user.id}>.")
         await interaction.response.send_message(f"Done. Minimal mode is now {state.value}.", ephemeral=True)
 
-    @app_commands.command(name="permission", description="Set the minimum rank required for a bot permission.")
-    @app_commands.describe(key="Permission key, e.g. teams.manage", min_rank="Minimum ladder position required")
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
-    @rate_limited()
     async def permission(self, interaction: discord.Interaction, key: str, min_rank: int) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
@@ -460,9 +437,6 @@ class ConfigCog(commands.GroupCog, group_name="config"):
         )
         await interaction.response.send_message(f"Done. `{key}` now requires **{rank_name}** or higher.", ephemeral=True)
 
-    @app_commands.command(name="reset", description="Restore default permission thresholds and minimal mode.")
-    @app_commands.default_permissions(administrator=True)
-    @require_admin()
     async def reset(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         assert guild is not None

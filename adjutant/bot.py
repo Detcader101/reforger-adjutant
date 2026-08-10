@@ -24,6 +24,7 @@ COGS = (
     "adjutant.cogs.map",
     "adjutant.cogs.admin",
     "adjutant.cogs.serverlink",
+    "adjutant.cogs.hub",
 )
 
 

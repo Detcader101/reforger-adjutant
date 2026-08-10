@@ -20,7 +20,7 @@ from discord.ext import commands, tasks
 from .. import view_util, voice
 from ..services import grants as grants_service
 from ..services import ranks as ranks_service
-from .admin import log_incident, minimal_mode, note_audit, rate_limited
+from .admin import check_rate_limit, log_incident, minimal_mode, note_audit, rate_limited
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,16 @@ async def load_permission_overrides(db: aiosqlite.Connection, guild_id: int) -> 
     return {r["permission"]: r["min_rank"] for r in rows}
 
 
+async def decline_admin_only(interaction: discord.Interaction, *, detail: str | None = None) -> None:
+    """Same denial copy + incident log as `require_admin`'s predicate, for
+    button/modal callbacks that can't use an app_commands check."""
+    member = interaction.user
+    if interaction.guild is not None:
+        tag = detail or (interaction.command.qualified_name if interaction.command else "?")
+        await log_incident(interaction.client, interaction.guild.id, member.id, "permission_denied", detail=tag)
+    await interaction.response.send_message(voice.decline("That's an admin-only order."), ephemeral=True)
+
+
 def require_admin():
     """app_commands check: guild Administrator permission or the guild
     owner. Denials are ephemeral and logged as an incident."""
@@ -53,13 +63,25 @@ def require_admin():
         member = interaction.user
         if interaction.guild is not None and isinstance(member, discord.Member) and is_guild_admin(member):
             return True
-        if interaction.guild is not None:
-            command_name = interaction.command.qualified_name if interaction.command else "?"
-            await log_incident(interaction.client, interaction.guild.id, member.id, "permission_denied", detail=command_name)
-        await interaction.response.send_message(voice.decline("That's an admin-only order."), ephemeral=True)
+        await decline_admin_only(interaction)
         return False
 
     return app_commands.check(predicate)
+
+
+async def member_has_permission(bot: commands.Bot, guild: discord.Guild, member: discord.Member, permission: str) -> bool:
+    """The rank/permission-override check itself, split out from
+    `require_permission` so button/modal callbacks (a fresh interaction that
+    may not be the original invoker) can re-check the same rule at click
+    time instead of only at command-invocation time."""
+    if is_guild_admin(member):
+        return True
+    assert bot.db is not None
+    ladder = await load_ladder(bot.db, guild.id)
+    overrides = await load_permission_overrides(bot.db, guild.id)
+    member_rank = ranks_service.resolve_rank((r.id for r in member.roles), ladder)
+    min_rank = ranks_service.get_min_rank(permission, overrides)
+    return ranks_service.has_permission(member_rank, min_rank, is_guild_admin(member))
 
 
 def require_permission(permission: str):
@@ -72,18 +94,7 @@ def require_permission(permission: str):
         if guild is None or not isinstance(member, discord.Member):
             return False
 
-        is_admin = is_guild_admin(member)
-        if is_admin:
-            return True
-
-        assert interaction.client.db is not None
-        db = interaction.client.db
-        ladder = await load_ladder(db, guild.id)
-        overrides = await load_permission_overrides(db, guild.id)
-        member_rank = ranks_service.resolve_rank((r.id for r in member.roles), ladder)
-        min_rank = ranks_service.get_min_rank(permission, overrides)
-        allowed = ranks_service.has_permission(member_rank, min_rank, is_admin)
-
+        allowed = await member_has_permission(interaction.client, guild, member, permission)
         if not allowed:
             await log_incident(interaction.client, guild.id, member.id, "permission_denied", detail=permission)
             await interaction.response.send_message(
@@ -94,8 +105,84 @@ def require_permission(permission: str):
     return app_commands.check(predicate)
 
 
-class RolesCog(commands.GroupCog, group_name="rank"):
-    """/rank — ladder configuration and role grants."""
+async def decline_missing_permission(interaction: discord.Interaction, permission: str) -> None:
+    """Same denial copy + incident log as `require_permission`'s predicate,
+    for button/modal callbacks that can't use an app_commands check."""
+    guild = interaction.guild
+    member = interaction.user
+    assert guild is not None
+    await log_incident(interaction.client, guild.id, member.id, "permission_denied", detail=permission)
+    await interaction.response.send_message(
+        voice.decline(f"You'll need higher rank for `{permission}`."), ephemeral=True
+    )
+
+
+class RevokeGrantView(view_util.ErrorHandledView):
+    """Attached to a successful /rank grant reply — one-shot Revoke button
+    for undoing the grant that was just made. Re-checks roles.manage at
+    click time since a button press is a fresh interaction and may not
+    come from whoever ran the grant."""
+
+    def __init__(self, bot: commands.Bot, guild: discord.Guild, member_id: int, role_id: int, timeout: float = 120.0):
+        super().__init__(timeout=timeout)
+        self.bot = bot
+        self.guild = guild
+        self.member_id = member_id
+        self.role_id = role_id
+        self.message: discord.Message | None = None
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True  # type: ignore[attr-defined]
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+    @discord.ui.button(label="Revoke", style=discord.ButtonStyle.danger)
+    async def revoke(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        member_actor = interaction.user
+        if not isinstance(member_actor, discord.Member):
+            return
+        if not await member_has_permission(self.bot, self.guild, member_actor, "roles.manage"):
+            await decline_missing_permission(interaction, "roles.manage")
+            return
+        if not await check_rate_limit(interaction, "rank.revoke"):
+            return
+        member = self.guild.get_member(self.member_id)
+        role = self.guild.get_role(self.role_id)
+        if member is None or role is None:
+            await interaction.response.send_message(
+                voice.broken("That member or role no longer exists.", "Nothing to revoke."), ephemeral=True
+            )
+            return
+        await _do_revoke(self.bot, interaction, member, role)
+
+
+async def _do_revoke(bot: commands.Bot, interaction: discord.Interaction, member: discord.Member, role: discord.Role) -> None:
+    """Shared by /rank's Revoke button and /admin rank-revoke. Strips the
+    role in Discord BEFORE forgetting the grant — the other order loses the
+    record whenever Discord refuses: the member keeps the role, nothing
+    tracks it any more, and the expiry sweep can never reclaim it."""
+    assert bot.db is not None and interaction.guild is not None
+    try:
+        await member.remove_roles(role, reason=f"Adjutant: rank revoke by {interaction.user}")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            voice.broken("I can't remove that role.", "Check my role sits above it in the hierarchy."),
+            ephemeral=True,
+        )
+        return
+    await grants_service.revoke_grant(bot.db, guild_id=interaction.guild.id, user_id=member.id, role_id=role.id)
+    await interaction.response.send_message(f"Done. {role.mention} withdrawn from {member.mention}.", ephemeral=True)
+
+
+class RolesCog(commands.Cog, name="RolesCog"):
+    """/rank — bare shows the ladder; with member+role, grants (optionally
+    timed). Ladder editing (ladder_add/ladder_remove below) has no direct
+    slash command any more — it's kept as plain methods for the /adjutant
+    hub's Ranks button to call once wired to setup.py."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -104,15 +191,8 @@ class RolesCog(commands.GroupCog, group_name="rank"):
     async def cog_unload(self) -> None:
         self.expire_grants.cancel()
 
-    # -- ladder ---------------------------------------------------------
+    # -- ladder (no longer directly slash-invocable — see class docstring) --
 
-    @app_commands.command(name="ladder-add", description="Add or update a rank on the ladder.")
-    @app_commands.describe(
-        role="Discord role backing this rank",
-        position="Ladder position — higher is more senior",
-        name="Display name for this rank",
-    )
-    @require_admin()
     async def ladder_add(self, interaction: discord.Interaction, role: discord.Role, position: int, name: str) -> None:
         assert self.bot.db is not None
         await self.bot.db.execute(
@@ -125,8 +205,6 @@ class RolesCog(commands.GroupCog, group_name="rank"):
             f"Noted. **{name}** set at position {position}, backed by {role.mention}.", ephemeral=True
         )
 
-    @app_commands.command(name="ladder-remove", description="Remove a rank from the ladder.")
-    @require_admin()
     async def ladder_remove(self, interaction: discord.Interaction, role: discord.Role) -> None:
         assert self.bot.db is not None
         cursor = await self.bot.db.execute(
@@ -138,44 +216,66 @@ class RolesCog(commands.GroupCog, group_name="rank"):
             return
         await interaction.response.send_message(f"Struck {role.mention} from the ladder.", ephemeral=True)
 
-    @app_commands.command(name="ladder-show", description="Show the current rank ladder.")
-    async def ladder_show(self, interaction: discord.Interaction) -> None:
-        assert self.bot.db is not None and interaction.guild is not None
-        ladder = await load_ladder(self.bot.db, interaction.guild.id)
-        minimal = await minimal_mode(self.bot.db, interaction.guild.id)
+    async def _ladder_embed(self, guild: discord.Guild) -> discord.Embed | None:
+        assert self.bot.db is not None
+        ladder = await load_ladder(self.bot.db, guild.id)
+        minimal = await minimal_mode(self.bot.db, guild.id)
         if not ladder:
-            await interaction.response.send_message(
-                voice.broken(
-                    "No rank ladder is configured.",
-                    "An admin can add one with `/rank ladder-add`, or run `/setup` for a default ladder.",
-                ),
-                ephemeral=True,
-            )
-            return
+            return None
         lines = "\n".join(
             f"{entry.position}. {entry.name} — <@&{entry.role_id}>"
             for entry in sorted(ladder, key=lambda e: -e.position)
         )
-        await interaction.response.send_message(embed=voice.embed("Rank Ladder", lines, minimal=minimal), ephemeral=True)
+        return voice.embed("Rank Ladder", lines, minimal=minimal)
 
-    # -- grants -----------------------------------------------------------
+    # -- /rank: bare shows the ladder, member+role grants -------------------
 
-    @app_commands.command(name="grant", description="Grant a member a role, permanently or for a set duration.")
+    @app_commands.command(name="rank", description="Show the rank ladder, or grant a member a role.")
     @app_commands.describe(
-        member="Who to grant the role to",
+        member="Who to grant a role to — omit to just view the ladder",
         role="The role to grant",
         duration="Optional duration, e.g. 2h, 3d, 1w — omit for permanent",
     )
-    @require_permission("roles.manage")
+    @app_commands.rename(duration="for")
     @rate_limited()
-    async def grant(
+    async def rank(
         self,
         interaction: discord.Interaction,
-        member: discord.Member,
-        role: discord.Role,
+        member: discord.Member | None = None,
+        role: discord.Role | None = None,
         duration: str | None = None,
     ) -> None:
         assert self.bot.db is not None and interaction.guild is not None
+        guild = interaction.guild
+
+        if member is None and role is None:
+            embed = await self._ladder_embed(guild)
+            if embed is None:
+                await interaction.response.send_message(
+                    voice.broken(
+                        "No rank ladder is configured.",
+                        "An admin can set one up from `/adjutant` → Ranks, or run `/setup`.",
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        if member is None or role is None:
+            await interaction.response.send_message(
+                voice.decline("Give both a member and a role to grant — or neither, to just view the ladder."),
+                ephemeral=True,
+            )
+            return
+
+        actor = interaction.user
+        if not isinstance(actor, discord.Member):
+            return
+        if not await member_has_permission(self.bot, guild, actor, "roles.manage"):
+            await decline_missing_permission(interaction, "roles.manage")
+            return
+
         expires_at: str | None = None
         kind = "perma"
         if duration:
@@ -201,7 +301,7 @@ class RolesCog(commands.GroupCog, group_name="rank"):
 
         await grants_service.record_grant(
             self.bot.db,
-            guild_id=interaction.guild.id,
+            guild_id=guild.id,
             user_id=member.id,
             role_id=role.id,
             kind=kind,
@@ -209,27 +309,16 @@ class RolesCog(commands.GroupCog, group_name="rank"):
             expires_at=expires_at,
         )
         tail = f"until it expires (`{duration}`)" if kind == "temp" else "permanently"
-        await interaction.response.send_message(f"Done. {member.mention} now holds {role.mention}, {tail}.", ephemeral=True)
+        view = RevokeGrantView(self.bot, guild, member.id, role.id)
+        await interaction.response.send_message(
+            f"Done. {member.mention} now holds {role.mention}, {tail}.", view=view, ephemeral=True
+        )
+        view.message = await interaction.original_response()
 
-    @app_commands.command(name="revoke", description="Revoke a granted role from a member.")
-    @require_permission("roles.manage")
-    @rate_limited()
     async def revoke(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role) -> None:
-        assert self.bot.db is not None and interaction.guild is not None
-        # Strip the role in Discord BEFORE forgetting the grant. The other
-        # order loses the record whenever Discord refuses: the member keeps
-        # the role, nothing tracks it any more, and the expiry sweep can
-        # never reclaim it.
-        try:
-            await member.remove_roles(role, reason=f"Adjutant: rank revoke by {interaction.user}")
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                voice.broken("I can't remove that role.", "Check my role sits above it in the hierarchy."),
-                ephemeral=True,
-            )
-            return
-        await grants_service.revoke_grant(self.bot.db, guild_id=interaction.guild.id, user_id=member.id, role_id=role.id)
-        await interaction.response.send_message(f"Done. {role.mention} withdrawn from {member.mention}.", ephemeral=True)
+        """Kept for /admin rank-revoke — the raw fallback for when the
+        Revoke button on a /rank reply isn't available any more."""
+        await _do_revoke(self.bot, interaction, member, role)
 
     # -- background expiry --------------------------------------------------
 

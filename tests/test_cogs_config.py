@@ -1,8 +1,13 @@
 """In-process integration tests for adjutant/cogs/config.py.
 
-/config is the post-/setup editing surface: every assertion here checks
-that a change actually landed in the DB (not just that the reply sounded
-right), and that refusals genuinely change nothing.
+/config's old slash surface is gone — its methods are now plain (no
+app_commands.command wrapper, no built-in admin check) and are reached
+only via /adjutant's Config button (`panel`) or /admin's raw fallbacks
+(`feature`/`audit_channel`/`minimal`/`permission`/`reset`); the admin
+recheck now lives at those call sites (see test_cogs_admin.py and
+test_cogs_hub.py), not inside this cog. Every assertion here checks that a
+change actually landed in the DB (not just that the reply sounded right),
+and that refusals genuinely change nothing.
 
 Note on simulating typed input: discord.ui.TextInput.value has no public
 setter (Discord fills it in when a real user submits a modal), so modal
@@ -33,7 +38,6 @@ from fakes import (
     next_id,
     reply_ephemeral,
     reply_text,
-    run_checks,
     seed_guild,
 )
 
@@ -71,13 +75,13 @@ async def _add_rank(bot, guild, name: str, position: int):
 
 async def _open_panel(cog, bot, guild, admin):
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config panel")
-    await ConfigCog.panel.callback(cog, interaction)
+    await cog.panel(interaction)
     view = interaction.response.messages[-1]["view"]
     return view, interaction.response.message
 
 
 # --------------------------------------------------------------------------- #
-# /config show                                                                #
+# show (called from the panel button — no direct slash command any more)      #
 # --------------------------------------------------------------------------- #
 
 async def test_show_reflects_stored_config(cog, bot, guild):
@@ -90,7 +94,7 @@ async def test_show_reflects_stored_config(cog, bot, guild):
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config show")
 
-    await ConfigCog.show.callback(cog, interaction)
+    await cog.show(interaction)
 
     text = reply_text(interaction).lower()
     assert "teams: on" in text
@@ -99,22 +103,8 @@ async def test_show_reflects_stored_config(cog, bot, guild):
     assert reply_ephemeral(interaction) is True
 
 
-async def test_non_admin_is_refused_ephemerally(cog, bot, guild):
-    await seed_guild(bot.db, guild.id)
-    grunt = make_member(guild, display_name="Grunt")
-    interaction = make_interaction(bot, guild=guild, user=grunt, command_name="config show")
-
-    allowed = await run_checks(ConfigCog.show, interaction)
-
-    assert allowed is False
-    assert reply_ephemeral(interaction) is True
-    assert "admin" in reply_text(interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
-    assert any(i["kind"] == "permission_denied" for i in incidents)
-
-
 # --------------------------------------------------------------------------- #
-# /config feature                                                             #
+# feature (called from /admin feature)                                       #
 # --------------------------------------------------------------------------- #
 
 async def test_toggling_a_feature_on_persists_and_is_idempotent(cog, bot, guild):
@@ -125,7 +115,7 @@ async def test_toggling_a_feature_on_persists_and_is_idempotent(cog, bot, guild)
 
     for _ in range(2):
         interaction = make_interaction(bot, guild=guild, user=admin, command_name="config feature")
-        await ConfigCog.feature.callback(cog, interaction, feature=feature, state=on)
+        await cog.feature(interaction, feature=feature, state=on)
 
     rows = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
     assert json.loads(rows[0]["features"]) == {"teams": True}
@@ -140,8 +130,8 @@ async def test_toggling_a_feature_off_persists(cog, bot, guild):
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config feature")
 
-    await ConfigCog.feature.callback(
-        cog, interaction,
+    await cog.feature(
+        interaction,
         feature=app_commands.Choice(name="Teams", value="teams"),
         state=app_commands.Choice(name="off", value="off"),
     )
@@ -151,7 +141,7 @@ async def test_toggling_a_feature_off_persists(cog, bot, guild):
 
 
 # --------------------------------------------------------------------------- #
-# /config audit-channel                                                       #
+# audit_channel (called from /admin audit-channel)                           #
 # --------------------------------------------------------------------------- #
 
 async def test_audit_channel_can_be_set_then_cleared(cog, bot, guild):
@@ -160,19 +150,19 @@ async def test_audit_channel_can_be_set_then_cleared(cog, bot, guild):
     channel = guild.create_standalone_text_channel(name="audit-log")
 
     set_interaction = make_interaction(bot, guild=guild, user=admin, command_name="config audit-channel")
-    await ConfigCog.audit_channel.callback(cog, set_interaction, channel=channel)
+    await cog.audit_channel(set_interaction, channel=channel)
     rows = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
     assert rows[0]["audit_channel"] == channel.id
 
     clear_interaction = make_interaction(bot, guild=guild, user=admin, command_name="config audit-channel")
-    await ConfigCog.audit_channel.callback(cog, clear_interaction, channel=None)
+    await cog.audit_channel(clear_interaction, channel=None)
     rows2 = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
     assert rows2[0]["audit_channel"] is None
     assert "cleared" in reply_text(clear_interaction).lower()
 
 
 # --------------------------------------------------------------------------- #
-# /config permission                                                          #
+# permission (called from /admin permission)                                 #
 # --------------------------------------------------------------------------- #
 
 async def test_permission_declines_an_unrecognised_key_and_changes_nothing(cog, bot, guild):
@@ -180,7 +170,7 @@ async def test_permission_declines_an_unrecognised_key_and_changes_nothing(cog, 
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config permission")
 
-    await ConfigCog.permission.callback(cog, interaction, key="bogus.permission", min_rank=1)
+    await cog.permission(interaction, key="bogus.permission", min_rank=1)
 
     assert "recognised" in reply_text(interaction).lower()
     assert reply_ephemeral(interaction) is True
@@ -194,7 +184,7 @@ async def test_permission_declines_a_rank_not_on_the_ladder_and_changes_nothing(
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config permission")
 
-    await ConfigCog.permission.callback(cog, interaction, key="teams.manage", min_rank=99)
+    await cog.permission(interaction, key="teams.manage", min_rank=99)
 
     assert "isn't on this guild's ladder" in reply_text(interaction).lower()
     assert reply_ephemeral(interaction) is True
@@ -208,7 +198,7 @@ async def test_permission_sets_a_valid_threshold(cog, bot, guild):
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config permission")
 
-    await ConfigCog.permission.callback(cog, interaction, key="teams.manage", min_rank=3)
+    await cog.permission(interaction, key="teams.manage", min_rank=3)
 
     rows = await bot.db.execute_fetchall(
         "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?", (guild.id, "teams.manage")
@@ -219,7 +209,7 @@ async def test_permission_sets_a_valid_threshold(cog, bot, guild):
 
 
 # --------------------------------------------------------------------------- #
-# /config reset                                                               #
+# reset (called from /admin reset)                                           #
 # --------------------------------------------------------------------------- #
 
 async def test_reset_restores_default_thresholds_but_leaves_ranks_and_teams_intact(cog, bot, guild):
@@ -237,7 +227,7 @@ async def test_reset_restores_default_thresholds_but_leaves_ranks_and_teams_inta
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="config reset")
 
-    await ConfigCog.reset.callback(cog, interaction)
+    await cog.reset(interaction)
     view = interaction.response.messages[-1]["view"]
     assert isinstance(view, ResetConfirmView)
 
