@@ -15,27 +15,24 @@ replies with that same panel pre-selected on the new team. `/admin
 team-disband` is the raw fallback for when the panel's Disband button
 isn't available.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-import discord
 import pytest
-
-from adjutant.cogs.admin import AdminCog
-from adjutant.cogs.teams import DisbandConfirmView, TeamPanelView, TeamsCog
 from fakes import (
     FakeGuild,
-    all_replies,
     forbidden,
     make_interaction,
     make_member,
-    next_id,
     reply_ephemeral,
     reply_text,
-    run_checks,
     seed_guild,
 )
+
+from adjutant.cogs.admin import AdminCog
+from adjutant.cogs.teams import DisbandConfirmView, TeamPanelView, TeamsCog
 
 
 @pytest.fixture
@@ -66,6 +63,7 @@ async def _admin(guild):
 # --------------------------------------------------------------------------- #
 # /team <name> — create — leak prevention (the critical test)                 #
 # --------------------------------------------------------------------------- #
+
 
 async def test_create_makes_role_category_text_and_voice_channel(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -109,7 +107,9 @@ async def test_create_permission_overwrites_deny_everyone_and_allow_team_role(co
     role = next(r for r in guild.roles if r.name == "Team Bravo")
 
     everyone_overwrite = category.overwrites.get(guild.default_role)
-    assert everyone_overwrite is not None, "no overwrite at all for @everyone means Discord's default (visible) applies"
+    assert everyone_overwrite is not None, (
+        "no overwrite at all for @everyone means Discord's default (visible) applies"
+    )
     assert everyone_overwrite.view_channel is False
 
     team_overwrite = category.overwrites.get(role)
@@ -165,8 +165,13 @@ async def test_create_reports_forbidden_cleanly_when_bot_lacks_permission(cog, b
     await TeamsCog.team.callback(cog, interaction, name="Delta")
 
     assert reply_ephemeral(interaction) is True
-    assert "lack permission" in reply_text(interaction) or "small snag" in reply_text(interaction).lower()
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Delta"))
+    assert (
+        "lack permission" in reply_text(interaction)
+        or "small snag" in reply_text(interaction).lower()
+    )
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Delta")
+    )
     assert rows == []
 
 
@@ -179,15 +184,20 @@ async def test_create_is_refused_for_a_non_privileged_member(cog, bot, guild):
 
     assert reply_ephemeral(interaction) is True
     assert "admin" in reply_text(interaction).lower() or "rank" in reply_text(interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Echo"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Echo")
+    )
     assert rows == []
 
 
 # --------------------------------------------------------------------------- #
 # bare /team — the manage panel                                               #
 # --------------------------------------------------------------------------- #
+
 
 async def _create_team(cog, bot, guild, name="Echo"):
     admin = await _admin(guild)
@@ -266,7 +276,9 @@ async def test_panel_remove_button_takes_the_team_role_off_the_selected_member(c
     assert role not in recruit.roles
 
 
-async def test_panel_assign_and_disband_buttons_are_disabled_until_a_team_is_chosen(cog, bot, guild):
+async def test_panel_assign_and_disband_buttons_are_disabled_until_a_team_is_chosen(
+    cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     await _create_team(cog, bot, guild, "Juliet")
     admin = await _admin(guild)
@@ -279,7 +291,9 @@ async def test_panel_assign_and_disband_buttons_are_disabled_until_a_team_is_cho
     assert view.disband_button.disabled is True
 
 
-async def test_panel_buttons_recheck_permission_and_decline_a_non_privileged_clicker(cog, bot, guild):
+async def test_panel_buttons_recheck_permission_and_decline_a_non_privileged_clicker(
+    cog, bot, guild
+):
     """A panel click is a fresh interaction — teams.manage must be
     rechecked there, not just trusted from whoever opened /team."""
     await seed_guild(bot.db, guild.id)
@@ -298,7 +312,9 @@ async def test_panel_buttons_recheck_permission_and_decline_a_non_privileged_cli
 
     assert role not in recruit.roles
     assert reply_ephemeral(click) is True
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
 
 
@@ -323,7 +339,9 @@ async def test_panel_assign_button_is_rate_limited_like_the_old_slash_command_wa
         await TeamPanelView.assign_button(view, last_click, None)
 
     assert "often" in reply_text(last_click).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "rate_limit" and i["detail"] == "team.assign" for i in incidents)
 
 
@@ -348,7 +366,10 @@ async def test_panel_is_locked_to_whoever_opened_it(cog, bot, guild):
 # /team disband (panel button + /admin team-disband fallback)                 #
 # --------------------------------------------------------------------------- #
 
-async def test_panel_disband_button_shows_the_confirm_view_which_completes_the_teardown(cog, bot, guild):
+
+async def test_panel_disband_button_shows_the_confirm_view_which_completes_the_teardown(
+    cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     await _create_team(cog, bot, guild, "Mike")
     category = next(c for c in guild.categories if c.name == "Mike")
@@ -367,15 +388,21 @@ async def test_panel_disband_button_shows_the_confirm_view_which_completes_the_t
     assert isinstance(confirm_view, DisbandConfirmView)
     assert category.deleted is False  # nothing happened yet — waiting on the button
 
-    confirm_click = make_interaction(bot, guild=guild, user=admin, message=disband_click.response.message)
+    confirm_click = make_interaction(
+        bot, guild=guild, user=admin, message=disband_click.response.message
+    )
     await DisbandConfirmView.confirm(confirm_view, confirm_click, None)
 
     assert category.deleted is True
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Mike"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Mike")
+    )
     assert rows == []
 
 
-async def test_disband_confirm_cancel_button_leaves_everything_untouched(admin_cog, cog, bot, guild):
+async def test_disband_confirm_cancel_button_leaves_everything_untouched(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     await _create_team(cog, bot, guild, "November")
     category = next(c for c in guild.categories if c.name == "November")
@@ -389,11 +416,15 @@ async def test_disband_confirm_cancel_button_leaves_everything_untouched(admin_c
     await DisbandConfirmView.cancel(view, click, None)
 
     assert category.deleted is False
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "November"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "November")
+    )
     assert len(rows) == 1
 
 
-async def test_admin_team_disband_with_confirm_true_removes_role_category_and_db_row(admin_cog, cog, bot, guild):
+async def test_admin_team_disband_with_confirm_true_removes_role_category_and_db_row(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     role = await _create_team(cog, bot, guild, "Oscar")
     category = next(c for c in guild.categories if c.name == "Oscar")
@@ -406,11 +437,15 @@ async def test_admin_team_disband_with_confirm_true_removes_role_category_and_db
     for channel in list(category.channels):
         assert channel.deleted is True
     assert role not in guild.roles or role.id not in {r.id for r in guild.roles}
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Oscar"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Oscar")
+    )
     assert rows == []
 
 
-async def test_admin_team_disband_on_a_nonexistent_team_declines_courteously(admin_cog, cog, bot, guild):
+async def test_admin_team_disband_on_a_nonexistent_team_declines_courteously(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     admin = await _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin team-disband")
@@ -421,7 +456,9 @@ async def test_admin_team_disband_on_a_nonexistent_team_declines_courteously(adm
     assert "no team" in reply_text(interaction).lower()
 
 
-async def test_admin_team_disband_is_refused_for_a_non_privileged_member(admin_cog, cog, bot, guild):
+async def test_admin_team_disband_is_refused_for_a_non_privileged_member(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     await _create_team(cog, bot, guild, "Papa")
     grunt = make_member(guild, display_name="Grunt")
@@ -430,13 +467,19 @@ async def test_admin_team_disband_is_refused_for_a_non_privileged_member(admin_c
     await AdminCog.team_disband.callback(admin_cog, interaction, name="Papa", confirm=True)
 
     assert reply_ephemeral(interaction) is True
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Papa"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Papa")
+    )
     assert len(rows) == 1  # untouched
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
 
 
-async def test_admin_team_disband_reports_forbidden_cleanly_when_deletion_is_blocked(admin_cog, cog, bot, guild):
+async def test_admin_team_disband_reports_forbidden_cleanly_when_deletion_is_blocked(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     await _create_team(cog, bot, guild, "Quebec")
     category = next(c for c in guild.categories if c.name == "Quebec")
@@ -444,13 +487,19 @@ async def test_admin_team_disband_reports_forbidden_cleanly_when_deletion_is_blo
 
     async def _raise_forbidden(reason=None):
         raise forbidden("Missing Permissions")
+
     category.delete = _raise_forbidden
 
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin team-disband")
     await AdminCog.team_disband.callback(admin_cog, interaction, name="Quebec", confirm=True)
 
     assert reply_ephemeral(interaction) is True
-    assert "couldn't remove" in reply_text(interaction).lower() or "small snag" in reply_text(interaction).lower()
+    assert (
+        "couldn't remove" in reply_text(interaction).lower()
+        or "small snag" in reply_text(interaction).lower()
+    )
     # DB row must survive — teardown only commits after full deletion succeeds
-    rows = await bot.db.execute_fetchall("SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Quebec"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, "Quebec")
+    )
     assert len(rows) == 1

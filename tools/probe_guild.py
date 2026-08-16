@@ -12,9 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import discord  # noqa: E402
+import discord
 
-from adjutant.config import Config  # noqa: E402
+from adjutant.config import Config
 
 NEEDED = (
     "manage_roles",
@@ -56,14 +56,18 @@ async def main() -> int:
                 )
                 print(f"  highest other role position: {highest_other}")
                 if me.top_role.position <= highest_other:
-                    print("  !! bot role is NOT above all other roles — it cannot manage the ones above it")
+                    print(
+                        "  !! bot role is NOT above all other roles — it cannot manage the ones above it"
+                    )
                 perms = me.guild_permissions
                 missing = [p for p in NEEDED if not getattr(perms, p)]
                 print(f"  administrator: {perms.administrator}")
                 print(f"  missing needed perms: {missing or 'none'}")
                 print(f"  text channels: {[c.name for c in guild.text_channels]}")
                 print(f"  categories: {[c.name for c in guild.categories]}")
-                print(f"  roles: {[(r.name, r.position) for r in sorted(guild.roles, key=lambda r: -r.position)]}")
+                print(
+                    f"  roles: {[(r.name, r.position) for r in sorted(guild.roles, key=lambda r: -r.position)]}"
+                )
                 cmds = await tree.fetch_commands(guild=discord.Object(id=guild.id))
                 names = sorted(c.name for c in cmds)
                 print(f"  guild slash commands registered: {len(cmds)} {names}")

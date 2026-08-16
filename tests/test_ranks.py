@@ -1,7 +1,5 @@
 """Rank ladder resolution and permission gating: pure logic, Discord-free."""
 
-import pytest
-
 from adjutant.services import ranks
 
 

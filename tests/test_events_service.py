@@ -23,18 +23,19 @@ async def _conn(tmp_path: Path):
 
 
 async def _make_event(conn, **overrides):
-    kwargs = dict(
-        guild_id=1,
-        name="Op Flashpoint",
-        description="A raid on the coast.",
-        starts_at="2026-01-01 12:00:00",
-        created_by=10,
-    )
+    kwargs = {
+        "guild_id": 1,
+        "name": "Op Flashpoint",
+        "description": "A raid on the coast.",
+        "starts_at": "2026-01-01 12:00:00",
+        "created_by": 10,
+    }
     kwargs.update(overrides)
     return await events.create_event(conn, **kwargs)
 
 
 # -- parse_start ---------------------------------------------------------
+
 
 def test_parse_start_accepts_relative_duration():
     now = datetime(2026, 1, 1, 12, 0, 0)
@@ -77,12 +78,14 @@ def test_parse_start_rejects_zero_duration():
 
 # -- stored_to_datetime ----------------------------------------------------
 
+
 def test_stored_to_datetime_is_the_inverse_of_format_timestamp():
     dt = datetime(2026, 3, 4, 9, 30, 0)
     assert events.stored_to_datetime(events.format_timestamp(dt)) == dt
 
 
 # -- create_event / get_event --------------------------------------------
+
 
 async def test_create_event_persists_and_returns_id(tmp_path):
     conn = await _conn(tmp_path)
@@ -125,6 +128,7 @@ async def test_get_event_returns_none_for_missing_id(tmp_path):
 
 # -- set_announce_message / get_event_by_announce_message -----------------
 
+
 async def test_set_announce_message_persists_channel_and_message_id(tmp_path):
     conn = await _conn(tmp_path)
     try:
@@ -158,6 +162,7 @@ async def test_get_event_by_announce_message_returns_none_when_unmatched(tmp_pat
 
 
 # -- list_upcoming ----------------------------------------------------------
+
 
 async def test_list_upcoming_returns_future_open_and_closed_events_in_order(tmp_path):
     conn = await _conn(tmp_path)
@@ -211,6 +216,7 @@ async def test_list_upcoming_scopes_to_guild(tmp_path):
 
 
 # -- set_status transitions --------------------------------------------------
+
 
 async def test_set_status_open_to_closed_succeeds(tmp_path):
     conn = await _conn(tmp_path)
@@ -307,6 +313,7 @@ async def test_set_status_on_missing_event_raises(tmp_path):
 
 # -- add_signup / remove_signup / signups_for_event --------------------------
 
+
 async def test_add_signup_new_persists_and_returns_true(tmp_path):
     conn = await _conn(tmp_path)
     try:
@@ -377,6 +384,7 @@ async def test_signups_for_event_scopes_to_that_event_only(tmp_path):
 
 
 # -- events_due_reminder / mark_reminded -------------------------------------
+
 
 async def test_events_due_reminder_includes_event_starting_within_lead(tmp_path):
     conn = await _conn(tmp_path)
@@ -450,7 +458,6 @@ async def test_events_due_reminder_excludes_cancelled_events(tmp_path):
 async def test_mark_reminded_sets_flag_so_event_no_longer_due(tmp_path):
     conn = await _conn(tmp_path)
     try:
-        now = datetime(2026, 1, 1, 12, 0, 0)
         event_id = await _make_event(conn, starts_at="2026-01-01 12:20:00")
         await events.mark_reminded(conn, event_id)
         event = await events.get_event(conn, event_id)
@@ -460,6 +467,7 @@ async def test_mark_reminded_sets_flag_so_event_no_longer_due(tmp_path):
 
 
 # -- events_due_teardown -------------------------------------------------------
+
 
 async def test_events_due_teardown_includes_open_event_past_start(tmp_path):
     conn = await _conn(tmp_path)

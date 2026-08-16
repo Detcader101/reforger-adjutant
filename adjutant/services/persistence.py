@@ -34,17 +34,20 @@ Every mutating call here ends with `await conn.commit()` — state is
 durable the instant the call returns, since the whole point is
 surviving a crash immediately after.
 """
+
 from __future__ import annotations
 
 import aiosqlite
-
 
 # --------------------------------------------------------------------------- #
 # bot_state                                                                    #
 # --------------------------------------------------------------------------- #
 
+
 async def get_bot_state(
-    conn: aiosqlite.Connection, guild_id: int, key: str,
+    conn: aiosqlite.Connection,
+    guild_id: int,
+    key: str,
 ) -> str | None:
     async with conn.execute(
         "SELECT value FROM bot_state WHERE guild_id = ? AND key = ?",
@@ -55,7 +58,10 @@ async def get_bot_state(
 
 
 async def set_bot_state(
-    conn: aiosqlite.Connection, guild_id: int, key: str, value: str,
+    conn: aiosqlite.Connection,
+    guild_id: int,
+    key: str,
+    value: str,
 ) -> None:
     await conn.execute(
         """
@@ -74,14 +80,17 @@ async def set_bot_state(
 # posted_messages                                                              #
 # --------------------------------------------------------------------------- #
 
+
 async def find_posted_message(
-    conn: aiosqlite.Connection, kind: str, identity: str, guild_id: int,
+    conn: aiosqlite.Connection,
+    kind: str,
+    identity: str,
+    guild_id: int,
 ) -> aiosqlite.Row | None:
     """Return the posted_messages row for (kind, identity, guild_id), or
     None if nothing was recorded for that key."""
     async with conn.execute(
-        "SELECT * FROM posted_messages "
-        "WHERE kind = ? AND identity = ? AND guild_id = ?",
+        "SELECT * FROM posted_messages WHERE kind = ? AND identity = ? AND guild_id = ?",
         (kind, identity, guild_id),
     ) as cur:
         return await cur.fetchone()
@@ -115,8 +124,11 @@ async def record_posted_message(
 # panels                                                                       #
 # --------------------------------------------------------------------------- #
 
+
 async def get_panel(
-    conn: aiosqlite.Connection, guild_id: int, kind: str,
+    conn: aiosqlite.Connection,
+    guild_id: int,
+    kind: str,
 ) -> aiosqlite.Row | None:
     async with conn.execute(
         "SELECT * FROM panels WHERE guild_id = ? AND kind = ?",
@@ -126,8 +138,11 @@ async def get_panel(
 
 
 async def set_panel(
-    conn: aiosqlite.Connection, guild_id: int, kind: str,
-    channel_id: int, message_id: int,
+    conn: aiosqlite.Connection,
+    guild_id: int,
+    kind: str,
+    channel_id: int,
+    message_id: int,
 ) -> None:
     await conn.execute(
         """
@@ -143,7 +158,9 @@ async def set_panel(
 
 
 async def clear_panel(
-    conn: aiosqlite.Connection, guild_id: int, kind: str,
+    conn: aiosqlite.Connection,
+    guild_id: int,
+    kind: str,
 ) -> None:
     await conn.execute(
         "DELETE FROM panels WHERE guild_id = ? AND kind = ?",

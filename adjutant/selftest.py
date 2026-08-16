@@ -29,9 +29,10 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import discord
 
@@ -40,13 +41,13 @@ import discord
 # python-dotenv's load_dotenv(override=False) default means this wins.
 os.environ.setdefault("ADJUTANT_DB", "data/selftest.db")
 
-from . import db as database  # noqa: E402
-from .bot import AdjutantBot  # noqa: E402
-from .config import Config  # noqa: E402
-from .services import events as events_service  # noqa: E402
-from .services import grants as grants_service  # noqa: E402
-from .services import mapping as mapping_service  # noqa: E402
-from . import voice  # noqa: E402
+from . import db as database
+from . import voice
+from .bot import AdjutantBot
+from .config import Config
+from .services import events as events_service
+from .services import grants as grants_service
+from .services import mapping as mapping_service
 
 log = logging.getLogger("adjutant.selftest")
 
@@ -96,21 +97,29 @@ class Harness:
                 log.warning("cleanup failed for %s", label, exc_info=True)
         return summary
 
-    async def delete_role(self, role: discord.Role, *, reason: str = "Adjutant selftest cleanup") -> None:
+    async def delete_role(
+        self, role: discord.Role, *, reason: str = "Adjutant selftest cleanup"
+    ) -> None:
         assert role.id in self.created_role_ids, (
             f"refusing to delete role {role.id} ({role.name!r}) — not in this harness's created-role registry"
         )
         current = self.guild.get_role(role.id)
         if current is not None:
-            await _retry_forbidden(lambda: current.delete(reason=reason), what=f"delete role {role.name!r}")
+            await _retry_forbidden(
+                lambda: current.delete(reason=reason), what=f"delete role {role.name!r}"
+            )
 
-    async def delete_channel(self, channel: discord.abc.GuildChannel, *, reason: str = "Adjutant selftest cleanup") -> None:
+    async def delete_channel(
+        self, channel: discord.abc.GuildChannel, *, reason: str = "Adjutant selftest cleanup"
+    ) -> None:
         assert channel.id in self.created_channel_ids, (
             f"refusing to delete channel {channel.id} ({channel.name!r}) — not in this harness's created-channel registry"
         )
         current = self.guild.get_channel(channel.id)
         if current is not None:
-            await _retry_forbidden(lambda: current.delete(reason=reason), what=f"delete channel {channel.name!r}")
+            await _retry_forbidden(
+                lambda: current.delete(reason=reason), what=f"delete channel {channel.name!r}"
+            )
 
 
 async def _pace() -> None:
@@ -118,7 +127,11 @@ async def _pace() -> None:
 
 
 async def _retry_forbidden(
-    coro_factory: Callable[[], Awaitable[Any]], *, attempts: int = 4, base_delay: float = 2.5, what: str = "discord API call"
+    coro_factory: Callable[[], Awaitable[Any]],
+    *,
+    attempts: int = 4,
+    base_delay: float = 2.5,
+    what: str = "discord API call",
 ) -> Any:
     """Discord intermittently 403s ("Missing Access"/"Missing Permissions")
     on channel/role create+delete calls when a lot of them happen in a short
@@ -139,14 +152,20 @@ async def _retry_forbidden(
             log.warning(
                 "%s hit a transient Forbidden (attempt %d/%d) — likely Discord's channel/role churn "
                 "throttle, not a real permission gap. Retrying in %.1fs: %s",
-                what, attempt, attempts, delay, exc,
+                what,
+                attempt,
+                attempts,
+                delay,
+                exc,
             )
             await asyncio.sleep(delay)
     assert last_exc is not None
     raise last_exc
 
 
-async def _wait_until(predicate: Callable[[], bool], *, timeout: float = 6.0, interval: float = 0.3) -> bool:
+async def _wait_until(
+    predicate: Callable[[], bool], *, timeout: float = 6.0, interval: float = 0.3
+) -> bool:
     """Discord's REST calls return before the gateway event that updates
     the local cache arrives — guild.get_role/get_channel can lag a create
     or delete by a beat. Poll instead of trusting the first read."""
@@ -160,7 +179,7 @@ async def _wait_until(predicate: Callable[[], bool], *, timeout: float = 6.0, in
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -211,7 +230,9 @@ async def check_database(h: Harness) -> str:
         f"schema_version reports max version {applied}, but the highest migration file present is "
         f"{highest_file:04d}_*.sql — migrations didn't fully apply."
     )
-    return f"schema at version {applied}, {len(migrations)} migration file(s) discovered and applied."
+    return (
+        f"schema at version {applied}, {len(migrations)} migration file(s) discovered and applied."
+    )
 
 
 async def check_guild_config(h: Harness) -> str:
@@ -235,13 +256,19 @@ async def check_guild_config(h: Harness) -> str:
     # after every other check's own cleanup has already had a shot.
     h.register(f"guilds row ({guild_id})", _cleanup_guild_row)
 
-    await _save_guild_config(h.bot, guild_id, minimal_mode=False, audit_channel_id=None, features=features)
+    await _save_guild_config(
+        h.bot, guild_id, minimal_mode=False, audit_channel_id=None, features=features
+    )
     row = await fetchone(h.bot.db, "SELECT * FROM guilds WHERE guild_id = ?", (guild_id,))
     assert row is not None, "guilds row wasn't written by _save_guild_config."
-    assert bool(row["minimal_mode"]) is False, f"minimal_mode round-tripped wrong: {row['minimal_mode']!r}."
+    assert bool(row["minimal_mode"]) is False, (
+        f"minimal_mode round-tripped wrong: {row['minimal_mode']!r}."
+    )
     stored_features = json.loads(row["features"] or "{}")
     enabled = {k for k, v in stored_features.items() if v}
-    assert enabled == features, f"features round-tripped wrong: stored {enabled}, expected {features}."
+    assert enabled == features, (
+        f"features round-tripped wrong: stored {enabled}, expected {features}."
+    )
     return f"guilds row written via _save_guild_config and read back; features={sorted(features)}."
 
 
@@ -259,7 +286,8 @@ async def check_rank_ladder(h: Harness) -> str:
         log.warning(
             "_create_default_ladder only returned %d/%d roles — likely the churn throttle rather than a real "
             "permission gap (connectivity check already passed). Cooling down and retrying once.",
-            len(created), len(DEFAULT_LADDER),
+            len(created),
+            len(DEFAULT_LADDER),
         )
         for role in created:
             current = h.guild.get_role(role.id)
@@ -298,7 +326,8 @@ async def check_role_grant_lifecycle(h: Harness) -> str:
     bot_member = h.state.get("me") or await guild.fetch_member(h.bot.user.id)
 
     role = await _retry_forbidden(
-        lambda: guild.create_role(name=f"{HARNESS_PREFIX}temp-role", reason="Adjutant selftest"), what="create temp role"
+        lambda: guild.create_role(name=f"{HARNESS_PREFIX}temp-role", reason="Adjutant selftest"),
+        what="create temp role",
     )
     await _pace()
     h.created_role_ids.add(role.id)
@@ -316,10 +345,15 @@ async def check_role_grant_lifecycle(h: Harness) -> str:
         granted_by=bot_member.id,
         expires_at=past,
     )
-    h.register(f"role_grants row #{grant_id}", (lambda: grants_service.revoke_grant_by_id(h.bot.db, grant_id)))
+    h.register(
+        f"role_grants row #{grant_id}",
+        (lambda: grants_service.revoke_grant_by_id(h.bot.db, grant_id)),
+    )
 
     fresh = await guild.fetch_member(bot_member.id)
-    assert role.id in {r.id for r in fresh.roles}, "role.add_roles reported success but the member doesn't hold it."
+    assert role.id in {r.id for r in fresh.roles}, (
+        "role.add_roles reported success but the member doesn't hold it."
+    )
 
     due = await grants_service.due_expiries(h.bot.db, _now())
     assert any(g.id == grant_id for g in due), (
@@ -328,7 +362,9 @@ async def check_role_grant_lifecycle(h: Harness) -> str:
     )
 
     roles_cog = h.bot.get_cog("RolesCog")
-    assert roles_cog is not None, "RolesCog isn't loaded on the bot (check COGS in bot.py / extension load errors)."
+    assert roles_cog is not None, (
+        "RolesCog isn't loaded on the bot (check COGS in bot.py / extension load errors)."
+    )
     # Calls the exact coroutine the 60s tasks.loop invokes (Loop.__call__ auto-
     # injects the cog as self) — not the loop's scheduling machinery.
     await roles_cog.expire_grants()
@@ -349,7 +385,7 @@ async def check_team_lifecycle(h: Harness) -> str:
 
     guild = h.guild
     name = f"{HARNESS_PREFIX}team"
-    me = h.state.get("me") or await guild.fetch_member(h.bot.user.id)
+    me = h.state.get("me") or await guild.fetch_member(h.bot.user.id)  # noqa: F841
 
     # Drives the same build_team() that /team create uses. Replicating its
     # body here once meant the harness kept passing its own copy of a bug
@@ -388,7 +424,9 @@ async def check_team_lifecycle(h: Harness) -> str:
     async def _cleanup_if_still_there() -> None:
         row = await fetchone(h.bot.db, "SELECT * FROM teams WHERE id = ?", (team_row_id,))
         if row is not None:
-            assert row["role_id"] in h.created_role_ids and row["category_id"] in h.created_channel_ids
+            assert (
+                row["role_id"] in h.created_role_ids and row["category_id"] in h.created_channel_ids
+            )
             await _disband_team(h.bot, guild, dict(row))
 
     h.register(f"team {name!r} (id={team_row_id})", _cleanup_if_still_there)
@@ -396,11 +434,15 @@ async def check_team_lifecycle(h: Harness) -> str:
     # -- verify creation --------------------------------------------------
     everyone_ow = category.overwrites_for(guild.default_role)
     team_ow = category.overwrites_for(role)
-    assert everyone_ow.view_channel is False, "category doesn't deny @everyone view_channel — leak risk."
+    assert everyone_ow.view_channel is False, (
+        "category doesn't deny @everyone view_channel — leak risk."
+    )
     assert team_ow.view_channel is True, "category doesn't grant the team role view_channel."
     db_row = await fetchone(h.bot.db, "SELECT * FROM teams WHERE id = ?", (team_row_id,))
     assert db_row is not None
-    assert db_row["role_id"] == role.id and db_row["category_id"] == category.id, "teams row doesn't match what was created."
+    assert db_row["role_id"] == role.id and db_row["category_id"] == category.id, (
+        "teams row doesn't match what was created."
+    )
 
     # -- disband via the real shared path ----------------------------------
     assert role.id in h.created_role_ids and category.id in h.created_channel_ids
@@ -425,11 +467,15 @@ async def check_event_lifecycle(h: Harness) -> str:
 
     guild = h.guild
     channel = h.state.get("events_channel")
-    assert channel is not None, "harness events channel wasn't created — see the harness-setup log line / connectivity check."
+    assert channel is not None, (
+        "harness events channel wasn't created — see the harness-setup log line / connectivity check."
+    )
     me = h.state.get("me") or await guild.fetch_member(h.bot.user.id)
 
     role = await _retry_forbidden(
-        lambda: guild.create_role(name=f"Op: {HARNESS_PREFIX}event", mentionable=True, reason="Adjutant selftest"),
+        lambda: guild.create_role(
+            name=f"Op: {HARNESS_PREFIX}event", mentionable=True, reason="Adjutant selftest"
+        ),
         what="create event role",
     )
     await _pace()
@@ -461,8 +507,12 @@ async def check_event_lifecycle(h: Harness) -> str:
 
     embed = build_announce_embed(event, 0)
     message = await channel.send(embed=embed, view=events_cog.signup_view)
-    await events_service.set_announce_message(h.bot.db, event_id, channel_id=channel.id, message_id=message.id)
-    assert len(message.components) > 0, "announce message has no components — the SignupView wasn't attached."
+    await events_service.set_announce_message(
+        h.bot.db, event_id, channel_id=channel.id, message_id=message.id
+    )
+    assert len(message.components) > 0, (
+        "announce message has no components — the SignupView wasn't attached."
+    )
 
     # Simulates the button press by calling the exact service functions
     # SignupView.signup's callback calls (add_signup + grants_service.record_grant).
@@ -470,16 +520,28 @@ async def check_event_lifecycle(h: Harness) -> str:
     assert added, "add_signup reported the bot was already signed up on a brand-new event."
     await me.add_roles(role, reason="Adjutant selftest: event signup")
     await grants_service.record_grant(
-        h.bot.db, guild_id=guild.id, user_id=me.id, role_id=role.id, kind="event", granted_by=me.id, event_id=event_id,
+        h.bot.db,
+        guild_id=guild.id,
+        user_id=me.id,
+        role_id=role.id,
+        kind="event",
+        granted_by=me.id,
+        event_id=event_id,
     )
 
     signups = await events_service.signups_for_event(h.bot.db, event_id)
     assert me.id in signups, "event_signups row missing after add_signup."
     fresh = await guild.fetch_member(me.id)
-    assert role.id in {r.id for r in fresh.roles}, "event role wasn't actually granted for the simulated signup."
+    assert role.id in {r.id for r in fresh.roles}, (
+        "event role wasn't actually granted for the simulated signup."
+    )
 
-    updated = await _retry_forbidden(lambda: events_cog._teardown(guild, event), what="EventsCog._teardown")
-    assert updated.status == "done", f"expected status 'done' after _teardown, got {updated.status!r}."
+    updated = await _retry_forbidden(
+        lambda: events_cog._teardown(guild, event), what="EventsCog._teardown"
+    )
+    assert updated.status == "done", (
+        f"expected status 'done' after _teardown, got {updated.status!r}."
+    )
     remaining_grants = await grants_service.grants_for_event(h.bot.db, event_id)
     assert not remaining_grants, "event-scoped grants still present after _teardown."
     role_gone = await _wait_until(lambda: guild.get_role(role.id) is None)
@@ -494,7 +556,9 @@ async def check_map_render(h: Harness) -> str:
 
     guild = h.guild
     channel = h.state.get("map_channel")
-    assert channel is not None, "harness map channel wasn't created — see the harness-setup log line / connectivity check."
+    assert channel is not None, (
+        "harness map channel wasn't created — see the harness-setup log line / connectivity check."
+    )
 
     markers = [
         mapping_service.Marker(kind="objective", label="Obj A", x=2300, z=8700),
@@ -506,7 +570,9 @@ async def check_map_render(h: Harness) -> str:
 
     file = discord.File(io.BytesIO(data), filename="map-everon.png")
     message = await channel.send(file=file)
-    assert message.attachments and message.attachments[0].size > 0, "uploaded map attachment reports zero/no size."
+    assert message.attachments and message.attachments[0].size > 0, (
+        "uploaded map attachment reports zero/no size."
+    )
 
     cursor = await h.bot.db.execute(
         "INSERT INTO maps (guild_id, channel_id, message_id, terrain) VALUES (?, ?, ?, ?)",
@@ -529,11 +595,15 @@ async def check_map_render(h: Harness) -> str:
 
     more_markers = markers + [mapping_service.Marker(kind="note", label="Extra", x=6000, z=6000)]
     new_data = mapping_service.render_to_png_bytes("everon", more_markers)
-    assert new_data != data, "re-render with an extra marker produced byte-identical output — rendering may be a no-op."
+    assert new_data != data, (
+        "re-render with an extra marker produced byte-identical output — rendering may be a no-op."
+    )
     await map_cog._refresh_message(channel, map_row, new_data)
 
     refreshed = await channel.fetch_message(message.id)
-    assert refreshed.attachments and refreshed.attachments[0].size > 0, "attachment missing/empty after in-place edit."
+    assert refreshed.attachments and refreshed.attachments[0].size > 0, (
+        "attachment missing/empty after in-place edit."
+    )
     return f"rendered {len(markers)}-marker PNG ({len(data)}B), uploaded, re-rendered + edited in place via MapCog._refresh_message."
 
 
@@ -545,7 +615,9 @@ async def check_serverlink_null(h: Harness) -> str:
     assert serverlink_cog is not None, "ServerLinkCog isn't loaded on the bot."
 
     link = serverlink_cog._get_link(h.guild.id)
-    assert isinstance(link, NullLink), f"expected NullLink for an unconfigured guild, got {type(link).__name__}."
+    assert isinstance(link, NullLink), (
+        f"expected NullLink for an unconfigured guild, got {type(link).__name__}."
+    )
 
     status = await link.status()
     assert status.reachable is False, "NullLink reported reachable=True."
@@ -554,7 +626,12 @@ async def check_serverlink_null(h: Harness) -> str:
     # /server status's own formatting branch for an unreachable result —
     # the smallest slice of the command not gated behind a live Interaction.
     minimal = await serverlink_cog._minimal(h.guild.id)
-    embed = voice.embed("Server Status", status.detail or "Not reachable.", colour=voice.COLOUR_INFO, minimal=minimal)
+    embed = voice.embed(
+        "Server Status",
+        status.detail or "Not reachable.",
+        colour=voice.COLOUR_INFO,
+        minimal=minimal,
+    )
     assert embed.description, "status formatting path produced an empty embed description."
     return "NullLink reports unreachable courteously; /server status's unreachable-formatting branch didn't raise."
 
@@ -565,23 +642,30 @@ async def check_audit_and_incident(h: Harness) -> str:
 
     guild = h.guild
     channel = h.state.get("audit_channel")
-    assert channel is not None, "harness audit channel wasn't created — see the harness-setup log line / connectivity check."
+    assert channel is not None, (
+        "harness audit channel wasn't created — see the harness-setup log line / connectivity check."
+    )
     me = h.state.get("me") or await guild.fetch_member(h.bot.user.id)
 
     features = h.state.get("features", {"teams", "events", "map"})
     minimal_mode = h.state.get("minimal_mode", False)
-    await _save_guild_config(h.bot, guild.id, minimal_mode=minimal_mode, audit_channel_id=channel.id, features=features)
+    await _save_guild_config(
+        h.bot, guild.id, minimal_mode=minimal_mode, audit_channel_id=channel.id, features=features
+    )
 
     marker = f"{HARNESS_PREFIX}audit-check-{int(time.time())}"
     await note_audit(h.bot, guild.id, marker)
     history = [m async for m in channel.history(limit=10)]
-    assert any(marker in (m.content or "") for m in history), "note_audit didn't post the expected message to the audit channel."
+    assert any(marker in (m.content or "") for m in history), (
+        "note_audit didn't post the expected message to the audit channel."
+    )
 
     detail = f"{HARNESS_PREFIX}incident-check"
 
     async def _del_incident_rows() -> None:
         await h.bot.db.execute(
-            "DELETE FROM incidents WHERE guild_id = ? AND user_id = ? AND detail = ?", (guild.id, me.id, detail)
+            "DELETE FROM incidents WHERE guild_id = ? AND user_id = ? AND detail = ?",
+            (guild.id, me.id, detail),
         )
         await h.bot.db.commit()
 
@@ -631,21 +715,31 @@ async def _prepare_harness_channels(h: Harness) -> None:
     guild = h.guild
     try:
         category = await _retry_forbidden(
-            lambda: guild.create_category(name=f"{HARNESS_PREFIX}harness", reason="Adjutant selftest"),
+            lambda: guild.create_category(
+                name=f"{HARNESS_PREFIX}harness", reason="Adjutant selftest"
+            ),
             what="create harness category",
         )
         await _pace()
     except discord.HTTPException as exc:
-        log.warning("Couldn't create the harness category — checks needing a channel will fail: %s", exc)
+        log.warning(
+            "Couldn't create the harness category — checks needing a channel will fail: %s", exc
+        )
         return
 
     h.created_channel_ids.add(category.id)
     h.register(f"harness category {category.name!r}", (lambda: h.delete_channel(category)))
 
-    for state_key, short_name in (("events_channel", "events"), ("map_channel", "map"), ("audit_channel", "audit")):
+    for state_key, short_name in (
+        ("events_channel", "events"),
+        ("map_channel", "map"),
+        ("audit_channel", "audit"),
+    ):
         try:
             ch = await _retry_forbidden(
-                lambda short_name=short_name: category.create_text_channel(name=f"{HARNESS_PREFIX}{short_name}"),
+                lambda short_name=short_name: category.create_text_channel(
+                    name=f"{HARNESS_PREFIX}{short_name}"
+                ),
                 what=f"create harness channel {short_name!r}",
             )
             await _pace()
@@ -671,13 +765,19 @@ async def _run_check(fn: Callable[[Harness], Awaitable[str]], h: Harness) -> Che
     start = time.monotonic()
     try:
         detail = await fn(h)
-        return CheckResult(name=name, passed=True, detail=str(detail), duration=time.monotonic() - start)
+        return CheckResult(
+            name=name, passed=True, detail=str(detail), duration=time.monotonic() - start
+        )
     except AssertionError as exc:
-        return CheckResult(name=name, passed=False, detail=str(exc), duration=time.monotonic() - start)
+        return CheckResult(
+            name=name, passed=False, detail=str(exc), duration=time.monotonic() - start
+        )
     except Exception as exc:
         detail = f"{type(exc).__module__}.{type(exc).__name__}: {exc}"
         log.warning("check %s raised", name, exc_info=True)
-        return CheckResult(name=name, passed=False, detail=detail, duration=time.monotonic() - start)
+        return CheckResult(
+            name=name, passed=False, detail=detail, duration=time.monotonic() - start
+        )
 
 
 def print_report(results: list[CheckResult], cleanup_summary: list[str]) -> None:
@@ -688,7 +788,7 @@ def print_report(results: list[CheckResult], cleanup_summary: list[str]) -> None
         status = "PASS" if r.passed else "FAIL"
         print(f"{status}  {r.name:<24} {r.duration:6.2f}s")
         if not r.passed or r.detail:
-            for line in (str(r.detail).splitlines() or [""]):
+            for line in str(r.detail).splitlines() or [""]:
                 print(f"        {line}")
     print("-" * 72)
     passed = sum(1 for r in results if r.passed)
@@ -709,11 +809,23 @@ def print_report(results: list[CheckResult], cleanup_summary: list[str]) -> None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Live self-test harness for Adjutant — see docs/SELFTEST.md.")
-    parser.add_argument("--guild", type=int, default=None, help="Guild id to run against (default: first DEV_GUILD_IDS entry).")
-    parser.add_argument("--keep", action="store_true", help="Skip cleanup — leave everything created for manual inspection.")
+    parser = argparse.ArgumentParser(
+        description="Live self-test harness for Adjutant — see docs/SELFTEST.md."
+    )
     parser.add_argument(
-        "--db", default=os.environ.get("ADJUTANT_DB", "data/selftest.db"),
+        "--guild",
+        type=int,
+        default=None,
+        help="Guild id to run against (default: first DEV_GUILD_IDS entry).",
+    )
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Skip cleanup — leave everything created for manual inspection.",
+    )
+    parser.add_argument(
+        "--db",
+        default=os.environ.get("ADJUTANT_DB", "data/selftest.db"),
         help="Path to the isolated selftest database (default: data/selftest.db — never the real DB).",
     )
     return parser.parse_args(argv)
@@ -753,14 +865,18 @@ async def main() -> int:
 
     try:
         ready_wait = asyncio.ensure_future(ready_event.wait())
-        done, _pending = await asyncio.wait({ready_wait, bot_task}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
+        done, _pending = await asyncio.wait(
+            {ready_wait, bot_task}, timeout=60, return_when=asyncio.FIRST_COMPLETED
+        )
         if bot_task in done and not ready_event.is_set():
             # start() returned/raised before we ever got READY — surface why.
             exc = bot_task.exception()
             print(f"Bot failed to start: {exc!r}", file=sys.stderr)
             return 1
         if not ready_event.is_set():
-            print("Timed out waiting for the bot to log in and become ready (60s).", file=sys.stderr)
+            print(
+                "Timed out waiting for the bot to log in and become ready (60s).", file=sys.stderr
+            )
             bot_task.cancel()
             return 1
     except discord.LoginFailure as exc:
@@ -779,13 +895,16 @@ async def main() -> int:
 
     try:
         if guild is None:
-            results.append(CheckResult(
-                name="connectivity", passed=False,
-                detail=(
-                    f"Guild {guild_id} not found or the bot isn't a member of it. "
-                    "Remedy: invite the bot to the test guild and confirm DEV_GUILD_IDS / --guild is correct."
-                ),
-            ))
+            results.append(
+                CheckResult(
+                    name="connectivity",
+                    passed=False,
+                    detail=(
+                        f"Guild {guild_id} not found or the bot isn't a member of it. "
+                        "Remedy: invite the bot to the test guild and confirm DEV_GUILD_IDS / --guild is correct."
+                    ),
+                )
+            )
         else:
             h = Harness(bot=bot, guild=guild, keep=args.keep)
             results.append(await _run_check(check_connectivity, h))
@@ -797,7 +916,7 @@ async def main() -> int:
         await bot.close()
         try:
             await asyncio.wait_for(bot_task, timeout=15)
-        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+        except (TimeoutError, asyncio.CancelledError, Exception):
             pass
 
     print_report(results, cleanup_summary)

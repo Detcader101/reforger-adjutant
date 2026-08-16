@@ -2,9 +2,6 @@
 
 from pathlib import Path
 
-import aiosqlite
-import pytest
-
 from adjutant import db as database
 
 

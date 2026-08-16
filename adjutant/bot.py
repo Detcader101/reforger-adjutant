@@ -8,9 +8,9 @@ import aiosqlite
 import discord
 from discord.ext import commands
 
-from .config import Config
 from . import bot_health
 from . import db as database
+from .config import Config
 from .services import guilds as guilds_service
 
 log = logging.getLogger(__name__)

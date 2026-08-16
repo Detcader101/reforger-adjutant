@@ -5,14 +5,10 @@ click time — this is the discoverability surface, so it's reached by
 whoever is curious, not just admins, and must decline politely rather
 than assume the panel's invoker is still privileged.
 """
+
 from __future__ import annotations
 
 import pytest
-
-from adjutant.cogs.admin import AdminCog, log_incident
-from adjutant.cogs.config import ConfigCog, ConfigPanelView
-from adjutant.cogs.hub import HubCog, HubView
-from adjutant.cogs.serverlink import ServerLinkCog, ServerPanelView
 from fakes import (
     FakeGuild,
     make_interaction,
@@ -22,6 +18,11 @@ from fakes import (
     reply_text,
     seed_guild,
 )
+
+from adjutant.cogs.admin import AdminCog, log_incident
+from adjutant.cogs.config import ConfigCog, ConfigPanelView
+from adjutant.cogs.hub import HubCog, HubView
+from adjutant.cogs.serverlink import ServerLinkCog, ServerPanelView
 
 
 @pytest.fixture
@@ -55,6 +56,7 @@ async def _open_hub(cog, bot, guild, user):
 # /adjutant — opens the panel                                                 #
 # --------------------------------------------------------------------------- #
 
+
 async def test_adjutant_reply_is_ephemeral_and_names_the_quick_commands(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     member = make_member(guild, display_name="Anyone")
@@ -85,6 +87,7 @@ async def test_panel_is_locked_to_whoever_opened_it(cog, bot, guild):
 # Config button                                                               #
 # --------------------------------------------------------------------------- #
 
+
 async def test_config_button_opens_the_config_panel_for_an_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     bot.register_cog(ConfigCog(bot))
@@ -110,7 +113,9 @@ async def test_config_button_declines_a_non_admin_without_touching_config(cog, b
     assert reply_ephemeral(click) is True
     assert "admin" in reply_text(click).lower()
     assert click.response.messages[-1]["view"] is None
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
 
 
@@ -129,6 +134,7 @@ async def test_config_button_degrades_politely_when_config_cog_is_not_loaded(cog
 # --------------------------------------------------------------------------- #
 # Server Link button                                                          #
 # --------------------------------------------------------------------------- #
+
 
 async def test_server_button_shows_the_server_status_panel(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -158,6 +164,7 @@ async def test_server_button_degrades_politely_when_serverlink_cog_is_not_loaded
 # --------------------------------------------------------------------------- #
 # Incidents button                                                            #
 # --------------------------------------------------------------------------- #
+
 
 async def test_incidents_button_shows_the_ledger_for_an_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -189,6 +196,7 @@ async def test_incidents_button_declines_a_non_admin(cog, bot, guild):
 # --------------------------------------------------------------------------- #
 # Setup / Ranks / Diagnostics — wired through to setup.py                     #
 # --------------------------------------------------------------------------- #
+
 
 async def test_setup_button_opens_the_setup_wizard_for_an_admin(cog, bot, guild):
     from adjutant.cogs.setup import SetupView

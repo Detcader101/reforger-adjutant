@@ -38,10 +38,21 @@ def test_parse_telemetry_parses_full_snapshot():
     snapshot = parse_telemetry(payload)
     assert snapshot.timestamp == 1000.5
     assert snapshot.players == [
-        PlayerInfo(name="Alice", player_id="abc-123", uuid="abc-123", faction="BLUFOR", position=(100.0, 5.0, 200.0))
+        PlayerInfo(
+            name="Alice",
+            player_id="abc-123",
+            uuid="abc-123",
+            faction="BLUFOR",
+            position=(100.0, 5.0, 200.0),
+        )
     ]
     assert snapshot.bases == [
-        BaseInfo(name="Camp Nowhere", faction="OPFOR", position=(500.0, 0.0, 300.0), flags={"capturable": True})
+        BaseInfo(
+            name="Camp Nowhere",
+            faction="OPFOR",
+            position=(500.0, 0.0, 300.0),
+            flags={"capturable": True},
+        )
     ]
 
 
@@ -65,7 +76,12 @@ def test_parse_telemetry_drops_player_missing_name_but_keeps_others():
 
 
 def test_parse_telemetry_drops_base_missing_position():
-    payload = {"bases": [{"name": "No Coords"}, {"name": "Has Coords", "position": {"x": 1, "y": 2, "z": 3}}]}
+    payload = {
+        "bases": [
+            {"name": "No Coords"},
+            {"name": "Has Coords", "position": {"x": 1, "y": 2, "z": 3}},
+        ]
+    }
     snapshot = parse_telemetry(payload)
     assert [b.name for b in snapshot.bases] == ["Has Coords"]
 

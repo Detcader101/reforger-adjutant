@@ -6,12 +6,10 @@ Command surface: `/map [terrain]` shows/refreshes the map and attaches a
 MapPanelView with Mark/Clear buttons, each opening a modal so nobody has
 to remember a subcommand's argument order.
 """
+
 from __future__ import annotations
 
 import pytest
-
-from adjutant.cogs.map import MapCog, MapClearModal, MapMarkModal, MapPanelView
-from adjutant.services import mapping as mapping_service
 from fakes import (
     FakeGuild,
     make_interaction,
@@ -20,6 +18,9 @@ from fakes import (
     reply_text,
     seed_guild,
 )
+
+from adjutant.cogs.map import MapClearModal, MapCog, MapMarkModal, MapPanelView
+from adjutant.services import mapping as mapping_service
 
 
 @pytest.fixture
@@ -72,6 +73,7 @@ def _submit_clear(cog, channel_id, marker_id=None):
 # /map                                                                         #
 # --------------------------------------------------------------------------- #
 
+
 async def test_show_posts_a_new_message_the_first_time(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
     member = make_member(guild, display_name="Anyone")
@@ -110,7 +112,10 @@ async def test_show_edits_the_existing_message_in_place_the_second_time(cog, bot
 # Mark modal                                                                   #
 # --------------------------------------------------------------------------- #
 
-async def test_mark_with_valid_grid_stores_marker_at_the_right_world_coords(cog, bot, guild, channel):
+
+async def test_mark_with_valid_grid_stores_marker_at_the_right_world_coords(
+    cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     admin = make_member(guild, display_name="Admin", is_admin=True)
     map_row, _ = await _show(cog, bot, guild, channel, admin)
@@ -120,7 +125,9 @@ async def test_mark_with_valid_grid_stores_marker_at_the_right_world_coords(cog,
     await modal.on_submit(submit_interaction)
 
     expected_x, expected_z = mapping_service.parse_grid("023 087")
-    rows = await bot.db.execute_fetchall("SELECT * FROM map_markers WHERE map_id = ?", (map_row["id"],))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM map_markers WHERE map_id = ?", (map_row["id"],)
+    )
     assert len(rows) == 1
     row = rows[0]
     assert row["x"] == expected_x
@@ -192,11 +199,15 @@ async def test_mark_modal_is_rate_limited_like_the_old_slash_command_was(cog, bo
         await modal.on_submit(last_interaction)
 
     assert "often" in reply_text(last_interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "rate_limit" and i["detail"] == "map.mark" for i in incidents)
 
 
-async def test_mark_modal_submission_is_refused_for_a_non_privileged_member(cog, bot, guild, channel):
+async def test_mark_modal_submission_is_refused_for_a_non_privileged_member(
+    cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     admin = make_member(guild, display_name="Admin", is_admin=True)
     await _show(cog, bot, guild, channel, admin)
@@ -207,13 +218,17 @@ async def test_mark_modal_submission_is_refused_for_a_non_privileged_member(cog,
     await modal.on_submit(submit_interaction)
 
     assert reply_ephemeral(submit_interaction) is True
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
     rows = await bot.db.execute_fetchall("SELECT * FROM map_markers")
     assert rows == []
 
 
-async def test_mark_button_declines_a_non_privileged_clicker_before_opening_the_modal(cog, bot, guild, channel):
+async def test_mark_button_declines_a_non_privileged_clicker_before_opening_the_modal(
+    cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     admin = make_member(guild, display_name="Admin", is_admin=True)
     _, show_interaction = await _show(cog, bot, guild, channel, admin)
@@ -231,6 +246,7 @@ async def test_mark_button_declines_a_non_privileged_clicker_before_opening_the_
 # --------------------------------------------------------------------------- #
 # Clear modal                                                                  #
 # --------------------------------------------------------------------------- #
+
 
 async def _place_marker(cog, bot, guild, channel, admin, label, grid="023 087"):
     modal = _submit_mark(cog, channel.id, "objective", label, grid)
@@ -253,7 +269,9 @@ async def test_clear_with_an_id_removes_only_that_marker(cog, bot, guild, channe
     clear_interaction = make_interaction(bot, guild=guild, user=admin, command_name="map")
     await modal.on_submit(clear_interaction)
 
-    remaining = await bot.db.execute_fetchall("SELECT label FROM map_markers WHERE map_id = ?", (map_row["id"],))
+    remaining = await bot.db.execute_fetchall(
+        "SELECT label FROM map_markers WHERE map_id = ?", (map_row["id"],)
+    )
     assert [r["label"] for r in remaining] == ["Second"]
     assert f"marker #{first_id}" in reply_text(clear_interaction).lower()
 
@@ -269,7 +287,9 @@ async def test_clear_without_an_id_removes_every_marker(cog, bot, guild, channel
     clear_interaction = make_interaction(bot, guild=guild, user=admin, command_name="map")
     await modal.on_submit(clear_interaction)
 
-    remaining = await bot.db.execute_fetchall("SELECT * FROM map_markers WHERE map_id = ?", (map_row["id"],))
+    remaining = await bot.db.execute_fetchall(
+        "SELECT * FROM map_markers WHERE map_id = ?", (map_row["id"],)
+    )
     assert remaining == []
     assert "every marker" in reply_text(clear_interaction).lower()
 

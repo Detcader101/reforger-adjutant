@@ -7,16 +7,12 @@ Command surface: bare `/event` lists upcoming events with a manage panel
 `/admin event-teardown` are the raw fallbacks for when the panel isn't
 available.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pytest
-
-from adjutant.cogs.admin import AdminCog
-from adjutant.cogs.events import EventManageView, EventsCog, SignupView
-from adjutant.services import events as events_service
-from adjutant.services import grants as grants_service
 from fakes import (
     FakeGuild,
     build_events_cog,
@@ -26,6 +22,11 @@ from fakes import (
     reply_text,
     seed_guild,
 )
+
+from adjutant.cogs.admin import AdminCog
+from adjutant.cogs.events import EventManageView, EventsCog, SignupView
+from adjutant.services import events as events_service
+from adjutant.services import grants as grants_service
 
 
 @pytest.fixture
@@ -54,11 +55,17 @@ def channel(guild):
     return guild.create_standalone_text_channel("ops")
 
 
-async def _create_event(cog, bot, guild, channel, creator, *, name="Op Flashpoint", start="2h", description=""):
-    interaction = make_interaction(bot, guild=guild, user=creator, channel=channel, command_name="event")
+async def _create_event(
+    cog, bot, guild, channel, creator, *, name="Op Flashpoint", start="2h", description=""
+):
+    interaction = make_interaction(
+        bot, guild=guild, user=creator, channel=channel, command_name="event"
+    )
     await EventsCog.event.callback(cog, interaction, name=name, when=start, description=description)
     row = (
-        await bot.db.execute_fetchall("SELECT * FROM events WHERE guild_id = ? AND name = ?", (guild.id, name))
+        await bot.db.execute_fetchall(
+            "SELECT * FROM events WHERE guild_id = ? AND name = ?", (guild.id, name)
+        )
     )[0]
     return row, interaction
 
@@ -67,11 +74,16 @@ async def _create_event(cog, bot, guild, channel, creator, *, name="Op Flashpoin
 # /event <name> <when> — create                                               #
 # --------------------------------------------------------------------------- #
 
-async def test_create_writes_row_creates_op_role_and_posts_announce_with_signup_view(cog, bot, guild, channel):
+
+async def test_create_writes_row_creates_op_role_and_posts_announce_with_signup_view(
+    cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
 
-    row, interaction = await _create_event(cog, bot, guild, channel, creator, description="Push the ridge.")
+    row, interaction = await _create_event(
+        cog, bot, guild, channel, creator, description="Push the ridge."
+    )
 
     role = next(r for r in guild.roles if r.name == "Op: Op Flashpoint")
     assert row["event_role_id"] == role.id
@@ -83,28 +95,38 @@ async def test_create_writes_row_creates_op_role_and_posts_announce_with_signup_
     assert row["announce_message"] == posted.id
     assert row["status"] == "open"
     assert reply_ephemeral(interaction) is True
-    assert "#" + str(row["id"]) in reply_text(interaction) or str(row["id"]) in reply_text(interaction)
+    assert "#" + str(row["id"]) in reply_text(interaction) or str(row["id"]) in reply_text(
+        interaction
+    )
 
 
 async def test_create_is_refused_for_a_non_privileged_member(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
     grunt = make_member(guild, display_name="Grunt")
-    interaction = make_interaction(bot, guild=guild, user=grunt, channel=channel, command_name="event")
+    interaction = make_interaction(
+        bot, guild=guild, user=grunt, channel=channel, command_name="event"
+    )
 
     await EventsCog.event.callback(cog, interaction, name="Unauthorised Op", when="2h")
 
     assert reply_ephemeral(interaction) is True
     assert "admin" in reply_text(interaction).lower() or "rank" in reply_text(interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
-    rows = await bot.db.execute_fetchall("SELECT * FROM events WHERE guild_id = ? AND name = ?", (guild.id, "Unauthorised Op"))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM events WHERE guild_id = ? AND name = ?", (guild.id, "Unauthorised Op")
+    )
     assert rows == []
 
 
 async def test_only_name_given_declines_and_explains_both_are_needed(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
-    interaction = make_interaction(bot, guild=guild, user=creator, channel=channel, command_name="event")
+    interaction = make_interaction(
+        bot, guild=guild, user=creator, channel=channel, command_name="event"
+    )
 
     await EventsCog.event.callback(cog, interaction, name="Half An Op", when=None)
 
@@ -115,7 +137,9 @@ async def test_only_name_given_declines_and_explains_both_are_needed(cog, bot, g
 async def test_only_when_given_declines_and_explains_both_are_needed(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
-    interaction = make_interaction(bot, guild=guild, user=creator, channel=channel, command_name="event")
+    interaction = make_interaction(
+        bot, guild=guild, user=creator, channel=channel, command_name="event"
+    )
 
     await EventsCog.event.callback(cog, interaction, name=None, when="2h")
 
@@ -126,6 +150,7 @@ async def test_only_when_given_declines_and_explains_both_are_needed(cog, bot, g
 # --------------------------------------------------------------------------- #
 # bare /event — the manage panel                                              #
 # --------------------------------------------------------------------------- #
+
 
 async def test_bare_event_lists_upcoming_events_with_a_manage_panel(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
@@ -205,6 +230,7 @@ async def test_panel_is_locked_to_whoever_opened_it(cog, bot, guild, channel):
 # SignupView                                                                   #
 # --------------------------------------------------------------------------- #
 
+
 async def test_signup_grants_role_records_signup_and_refreshes_the_embed(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
@@ -231,7 +257,9 @@ async def test_signup_is_idempotent_on_a_second_click(cog, bot, guild, channel):
     announce = channel.sent[-1]
     recruit = make_member(guild, display_name="Recruit")
 
-    await SignupView.signup(cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None)
+    await SignupView.signup(
+        cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None
+    )
     second_click = make_interaction(bot, guild=guild, user=recruit, message=announce)
     await SignupView.signup(cog.signup_view, second_click, None)
 
@@ -247,7 +275,9 @@ async def test_withdraw_reverses_signup_and_removes_the_role(cog, bot, guild, ch
     announce = channel.sent[-1]
     role = guild.get_role(row["event_role_id"])
     recruit = make_member(guild, display_name="Recruit")
-    await SignupView.signup(cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None)
+    await SignupView.signup(
+        cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None
+    )
 
     withdraw_click = make_interaction(bot, guild=guild, user=recruit, message=announce)
     await SignupView.withdraw(cog.signup_view, withdraw_click, None)
@@ -276,7 +306,10 @@ async def test_withdraw_when_not_signed_up_declines_without_erroring(cog, bot, g
 # teardown (panel button + /admin event-teardown fallback)                    #
 # --------------------------------------------------------------------------- #
 
-async def test_teardown_releases_every_grant_strips_roles_and_deletes_the_op_role(cog, bot, guild, channel):
+
+async def test_teardown_releases_every_grant_strips_roles_and_deletes_the_op_role(
+    cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
     row, _ = await _create_event(cog, bot, guild, channel, creator)
@@ -284,7 +317,11 @@ async def test_teardown_releases_every_grant_strips_roles_and_deletes_the_op_rol
     role = guild.get_role(row["event_role_id"])
     recruits = [make_member(guild, display_name=f"Recruit{i}") for i in range(3)]
     for recruit in recruits:
-        await SignupView.signup(cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None)
+        await SignupView.signup(
+            cog.signup_view,
+            make_interaction(bot, guild=guild, user=recruit, message=announce),
+            None,
+        )
     for recruit in recruits:
         assert role in recruit.roles
 
@@ -300,12 +337,16 @@ async def test_teardown_releases_every_grant_strips_roles_and_deletes_the_op_rol
     assert reply_ephemeral(teardown_interaction) is True
 
 
-async def test_admin_event_teardown_forwards_to_the_same_teardown(admin_cog, cog, bot, guild, channel):
+async def test_admin_event_teardown_forwards_to_the_same_teardown(
+    admin_cog, cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
     row, _ = await _create_event(cog, bot, guild, channel, creator)
 
-    interaction = make_interaction(bot, guild=guild, user=creator, command_name="admin event-teardown")
+    interaction = make_interaction(
+        bot, guild=guild, user=creator, command_name="admin event-teardown"
+    )
     await AdminCog.event_teardown.callback(admin_cog, interaction, event_id=row["id"])
 
     updated = await events_service.get_event(bot.db, row["id"])
@@ -319,7 +360,9 @@ async def test_admin_event_teardown_is_refused_for_an_outsider(admin_cog, cog, b
     row, _ = await _create_event(cog, bot, guild, channel, creator)
     outsider = make_member(guild, display_name="Outsider")
 
-    interaction = make_interaction(bot, guild=guild, user=outsider, command_name="admin event-teardown")
+    interaction = make_interaction(
+        bot, guild=guild, user=outsider, command_name="admin event-teardown"
+    )
     await AdminCog.event_teardown.callback(admin_cog, interaction, event_id=row["id"])
 
     updated = await events_service.get_event(bot.db, row["id"])
@@ -331,11 +374,18 @@ async def test_admin_event_teardown_is_refused_for_an_outsider(admin_cog, cog, b
 # background ticker: reminders                                                #
 # --------------------------------------------------------------------------- #
 
-async def test_reminder_ticker_reminds_only_due_events_and_will_not_double_remind(cog, bot, guild, channel):
+
+async def test_reminder_ticker_reminds_only_due_events_and_will_not_double_remind(
+    cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
-    due_row, _ = await _create_event(cog, bot, guild, channel, creator, name="Due Soon", start="20m")
-    later_row, _ = await _create_event(cog, bot, guild, channel, creator, name="Much Later", start="6h")
+    due_row, _ = await _create_event(
+        cog, bot, guild, channel, creator, name="Due Soon", start="20m"
+    )
+    later_row, _ = await _create_event(
+        cog, bot, guild, channel, creator, name="Much Later", start="6h"
+    )
     channel.sent.clear()
 
     await EventsCog.event_ticker.coro(cog)
@@ -360,6 +410,7 @@ async def test_reminder_ticker_reminds_only_due_events_and_will_not_double_remin
 # /event cancel — permission gating (panel button + /admin event-cancel)      #
 # --------------------------------------------------------------------------- #
 
+
 async def test_cancel_from_a_non_creator_without_permission_is_refused(cog, bot, guild, channel):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
@@ -370,10 +421,15 @@ async def test_cancel_from_a_non_creator_without_permission_is_refused(cog, bot,
     await EventsCog.cancel(cog, interaction, event_id=row["id"])
 
     assert reply_ephemeral(interaction) is True
-    assert "organiser" in reply_text(interaction).lower() or "events staff" in reply_text(interaction).lower()
+    assert (
+        "organiser" in reply_text(interaction).lower()
+        or "events staff" in reply_text(interaction).lower()
+    )
     updated = await events_service.get_event(bot.db, row["id"])
     assert updated.status == "open"
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
 
 
@@ -384,7 +440,9 @@ async def test_cancel_by_the_creator_releases_grants_and_clears_the_view(cog, bo
     announce = channel.sent[-1]
     role = guild.get_role(row["event_role_id"])
     recruit = make_member(guild, display_name="Recruit")
-    await SignupView.signup(cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None)
+    await SignupView.signup(
+        cog.signup_view, make_interaction(bot, guild=guild, user=recruit, message=announce), None
+    )
 
     interaction = make_interaction(bot, guild=guild, user=creator, command_name="event")
     await EventsCog.cancel(cog, interaction, event_id=row["id"])
@@ -396,12 +454,16 @@ async def test_cancel_by_the_creator_releases_grants_and_clears_the_view(cog, bo
     assert reply_ephemeral(interaction) is True
 
 
-async def test_admin_event_cancel_forwards_with_the_same_gating(admin_cog, cog, bot, guild, channel):
+async def test_admin_event_cancel_forwards_with_the_same_gating(
+    admin_cog, cog, bot, guild, channel
+):
     await seed_guild(bot.db, guild.id)
     creator = make_member(guild, display_name="Creator", is_admin=True)
     row, _ = await _create_event(cog, bot, guild, channel, creator)
 
-    interaction = make_interaction(bot, guild=guild, user=creator, command_name="admin event-cancel")
+    interaction = make_interaction(
+        bot, guild=guild, user=creator, command_name="admin event-cancel"
+    )
     await AdminCog.event_cancel.callback(admin_cog, interaction, event_id=row["id"])
 
     updated = await events_service.get_event(bot.db, row["id"])

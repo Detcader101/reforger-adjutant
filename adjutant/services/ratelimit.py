@@ -8,8 +8,8 @@ injectable), so it's testable without sleeping. Cogs key it by
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Callable, Hashable
+from collections.abc import Callable, Hashable
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)

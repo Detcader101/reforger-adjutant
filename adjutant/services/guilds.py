@@ -14,7 +14,7 @@ ensuring is always safe to repeat.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import aiosqlite
 
@@ -25,9 +25,7 @@ async def ensure_guild(conn: aiosqlite.Connection, guild_id: int) -> bool:
     Existing settings are left untouched: this is INSERT OR IGNORE, not an
     upsert, so calling it on a fully configured guild is a no-op.
     """
-    cursor = await conn.execute(
-        "INSERT OR IGNORE INTO guilds (guild_id) VALUES (?)", (guild_id,)
-    )
+    cursor = await conn.execute("INSERT OR IGNORE INTO guilds (guild_id) VALUES (?)", (guild_id,))
     await conn.commit()
     return cursor.rowcount > 0
 
@@ -42,7 +40,5 @@ async def ensure_many(conn: aiosqlite.Connection, guild_ids: Iterable[int]) -> i
 
 
 async def get_guild(conn: aiosqlite.Connection, guild_id: int) -> aiosqlite.Row | None:
-    async with conn.execute(
-        "SELECT * FROM guilds WHERE guild_id = ?", (guild_id,)
-    ) as cur:
+    async with conn.execute("SELECT * FROM guilds WHERE guild_id = ?", (guild_id,)) as cur:
         return await cur.fetchone()

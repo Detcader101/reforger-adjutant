@@ -27,13 +27,22 @@ log = logging.getLogger(__name__)
 
 FEATURE_OPTIONS = [
     discord.SelectOption(label="Teams", value="teams", description="Locked team roles + channels"),
-    discord.SelectOption(label="Events", value="events", description="Ops/events with signup and reminders"),
-    discord.SelectOption(label="Map", value="map", description="Rendered map messages with markers"),
-    discord.SelectOption(label="Server Link", value="serverlink", description="Game-server status integration"),
+    discord.SelectOption(
+        label="Events", value="events", description="Ops/events with signup and reminders"
+    ),
+    discord.SelectOption(
+        label="Map", value="map", description="Rendered map messages with markers"
+    ),
+    discord.SelectOption(
+        label="Server Link", value="serverlink", description="Game-server status integration"
+    ),
 ]
 _FEATURE_LABELS = {o.value: o.label for o in FEATURE_OPTIONS}
 
-_ON_OFF_CHOICES = [app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")]
+_ON_OFF_CHOICES = [
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+]
 _FEATURE_CHOICES = [app_commands.Choice(name=o.label, value=o.value) for o in FEATURE_OPTIONS]
 
 
@@ -86,7 +95,7 @@ class PermissionThresholdModal(discord.ui.Modal, title="Set Permission Threshold
         label="Minimum rank position", placeholder="e.g. 3"
     )
 
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, panel: "ConfigPanelView"):
+    def __init__(self, bot: commands.Bot, guild: discord.Guild, panel: ConfigPanelView):
         super().__init__()
         self.bot = bot
         self.guild = guild
@@ -97,7 +106,8 @@ class PermissionThresholdModal(discord.ui.Modal, title="Set Permission Threshold
         if not config_service.valid_permission_key(key):
             valid = ", ".join(sorted(ranks_service.DEFAULT_PERMISSIONS))
             await interaction.response.send_message(
-                voice.decline(f"`{key}` isn't a recognised permission. Valid keys: {valid}."), ephemeral=True
+                voice.decline(f"`{key}` isn't a recognised permission. Valid keys: {valid}."),
+                ephemeral=True,
             )
             return
 
@@ -115,10 +125,12 @@ class PermissionThresholdModal(discord.ui.Modal, title="Set Permission Threshold
         if not config_service.valid_rank_position(position, ladder):
             detail = (
                 f"Valid ranks: {', '.join(f'{e.position} ({e.name})' for e in sorted(ladder, key=lambda e: e.position))}."
-                if ladder else "No rank ladder is configured yet — add one with `/rank ladder-add`."
+                if ladder
+                else "No rank ladder is configured yet — add one with `/rank ladder-add`."
             )
             await interaction.response.send_message(
-                voice.decline(f"Position {position} isn't on this guild's ladder. {detail}"), ephemeral=True
+                voice.decline(f"Position {position} isn't on this guild's ladder. {detail}"),
+                ephemeral=True,
             )
             return
 
@@ -131,7 +143,9 @@ class PermissionThresholdModal(discord.ui.Modal, title="Set Permission Threshold
         await self.bot.db.commit()
         rank_name = config_service.rank_name_for_position(ladder, position)
         await note_audit(
-            self.bot, self.guild.id, f"Config: `{key}` threshold set to {rank_name} by <@{interaction.user.id}>."
+            self.bot,
+            self.guild.id,
+            f"Config: `{key}` threshold set to {rank_name} by <@{interaction.user.id}>.",
         )
         await self.panel.refresh(interaction)
 
@@ -153,7 +167,9 @@ class ConfigPanelView(view_util.ErrorHandledView):
     with what this panel last displayed.
     """
 
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 300.0):
+    def __init__(
+        self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 300.0
+    ):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.guild = guild
@@ -201,31 +217,46 @@ class ConfigPanelView(view_util.ErrorHandledView):
             await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(
-        placeholder="Toggle features", min_values=0, max_values=len(FEATURE_OPTIONS), options=FEATURE_OPTIONS
+        placeholder="Toggle features",
+        min_values=0,
+        max_values=len(FEATURE_OPTIONS),
+        options=FEATURE_OPTIONS,
     )
-    async def feature_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
+    async def feature_select(
+        self, interaction: discord.Interaction, select: discord.ui.Select
+    ) -> None:
         assert self.bot.db is not None
         await guilds_service.ensure_guild(self.bot.db, self.guild.id)
-        row = await fetchone(self.bot.db, "SELECT features FROM guilds WHERE guild_id = ?", (self.guild.id,))
+        row = await fetchone(
+            self.bot.db, "SELECT features FROM guilds WHERE guild_id = ?", (self.guild.id,)
+        )
         features = config_service.parse_features(row["features"] if row else None)
         chosen = set(select.values)
         for key in _FEATURE_LABELS:
             features[key] = key in chosen
         await self.bot.db.execute(
-            "UPDATE guilds SET features = ? WHERE guild_id = ?", (json.dumps(features), self.guild.id)
+            "UPDATE guilds SET features = ? WHERE guild_id = ?",
+            (json.dumps(features), self.guild.id),
         )
         await self.bot.db.commit()
         await note_audit(
-            self.bot, self.guild.id,
+            self.bot,
+            self.guild.id,
             f"Config: features set to [{', '.join(sorted(chosen)) or 'none'}] by <@{interaction.user.id}>.",
         )
         await self.refresh(interaction)
 
     @discord.ui.select(
-        cls=discord.ui.ChannelSelect, placeholder="Set audit channel (clears if you pick none)",
-        channel_types=[discord.ChannelType.text], min_values=0, max_values=1, row=1,
+        cls=discord.ui.ChannelSelect,
+        placeholder="Set audit channel (clears if you pick none)",
+        channel_types=[discord.ChannelType.text],
+        min_values=0,
+        max_values=1,
+        row=1,
     )
-    async def audit_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect) -> None:
+    async def audit_select(
+        self, interaction: discord.Interaction, select: discord.ui.ChannelSelect
+    ) -> None:
         assert self.bot.db is not None
         channel_id = select.values[0].id if select.values else None
         await guilds_service.ensure_guild(self.bot.db, self.guild.id)
@@ -234,40 +265,58 @@ class ConfigPanelView(view_util.ErrorHandledView):
         )
         await self.bot.db.commit()
         detail = f"<#{channel_id}>" if channel_id else "cleared"
-        await note_audit(self.bot, self.guild.id, f"Config: audit channel {detail} by <@{interaction.user.id}>.")
+        await note_audit(
+            self.bot, self.guild.id, f"Config: audit channel {detail} by <@{interaction.user.id}>."
+        )
         await self.refresh(interaction)
 
     @discord.ui.button(label="Clear audit channel", style=discord.ButtonStyle.secondary, row=2)
-    async def clear_audit_channel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def clear_audit_channel(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         assert self.bot.db is not None
         await guilds_service.ensure_guild(self.bot.db, self.guild.id)
-        await self.bot.db.execute("UPDATE guilds SET audit_channel = NULL WHERE guild_id = ?", (self.guild.id,))
+        await self.bot.db.execute(
+            "UPDATE guilds SET audit_channel = NULL WHERE guild_id = ?", (self.guild.id,)
+        )
         await self.bot.db.commit()
-        await note_audit(self.bot, self.guild.id, f"Config: audit channel cleared by <@{interaction.user.id}>.")
+        await note_audit(
+            self.bot, self.guild.id, f"Config: audit channel cleared by <@{interaction.user.id}>."
+        )
         await self.refresh(interaction)
 
     @discord.ui.button(label="Minimal mode: OFF", style=discord.ButtonStyle.secondary, row=2)
-    async def minimal_toggle(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def minimal_toggle(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         assert self.bot.db is not None
         await guilds_service.ensure_guild(self.bot.db, self.guild.id)
-        row = await fetchone(self.bot.db, "SELECT minimal_mode FROM guilds WHERE guild_id = ?", (self.guild.id,))
+        row = await fetchone(
+            self.bot.db, "SELECT minimal_mode FROM guilds WHERE guild_id = ?", (self.guild.id,)
+        )
         new_value = not bool(row["minimal_mode"]) if row is not None else True
         await self.bot.db.execute(
             "UPDATE guilds SET minimal_mode = ? WHERE guild_id = ?", (int(new_value), self.guild.id)
         )
         await self.bot.db.commit()
         await note_audit(
-            self.bot, self.guild.id, f"Config: minimal mode {'on' if new_value else 'off'} by <@{interaction.user.id}>."
+            self.bot,
+            self.guild.id,
+            f"Config: minimal mode {'on' if new_value else 'off'} by <@{interaction.user.id}>.",
         )
         await self.refresh(interaction)
 
     @discord.ui.button(label="Set permission threshold…", style=discord.ButtonStyle.primary, row=3)
-    async def set_permission(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def set_permission(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         await interaction.response.send_modal(PermissionThresholdModal(self.bot, self.guild, self))
 
 
 class ResetConfirmModal(discord.ui.Modal, title="Confirm Config Reset"):
-    guild_name_input: discord.ui.TextInput = discord.ui.TextInput(label="Type this server's exact name to confirm")
+    guild_name_input: discord.ui.TextInput = discord.ui.TextInput(
+        label="Type this server's exact name to confirm"
+    )
 
     def __init__(self, bot: commands.Bot, guild: discord.Guild):
         super().__init__()
@@ -278,17 +327,23 @@ class ResetConfirmModal(discord.ui.Modal, title="Confirm Config Reset"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         if self.guild_name_input.value != self.guild.name:
             await interaction.response.send_message(
-                voice.decline("That didn't match the server name exactly. Reset cancelled — nothing changed."),
+                voice.decline(
+                    "That didn't match the server name exactly. Reset cancelled — nothing changed."
+                ),
                 ephemeral=True,
             )
             return
         assert self.bot.db is not None
         await guilds_service.ensure_guild(self.bot.db, self.guild.id)
         await self.bot.db.execute("DELETE FROM permissions WHERE guild_id = ?", (self.guild.id,))
-        await self.bot.db.execute("UPDATE guilds SET minimal_mode = 0 WHERE guild_id = ?", (self.guild.id,))
+        await self.bot.db.execute(
+            "UPDATE guilds SET minimal_mode = 0 WHERE guild_id = ?", (self.guild.id,)
+        )
         await self.bot.db.commit()
         await note_audit(
-            self.bot, self.guild.id, f"Config: reset to default thresholds by <@{interaction.user.id}>."
+            self.bot,
+            self.guild.id,
+            f"Config: reset to default thresholds by <@{interaction.user.id}>.",
         )
         await interaction.response.send_message(
             "Reset complete. Permission thresholds are back to their defaults and minimal mode is off. "
@@ -301,7 +356,9 @@ class ResetConfirmModal(discord.ui.Modal, title="Confirm Config Reset"):
 
 
 class ResetConfirmView(view_util.ErrorHandledView):
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 60.0):
+    def __init__(
+        self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 60.0
+    ):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.guild = guild
@@ -363,19 +420,32 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         view.message = await interaction.original_response()
 
     async def feature(
-        self, interaction: discord.Interaction, feature: app_commands.Choice[str], state: app_commands.Choice[str]
+        self,
+        interaction: discord.Interaction,
+        feature: app_commands.Choice[str],
+        state: app_commands.Choice[str],
     ) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
         await guilds_service.ensure_guild(self.bot.db, guild.id)
-        row = await fetchone(self.bot.db, "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
-        new_json = config_service.set_feature(row["features"] if row else None, feature.value, state.value == "on")
-        await self.bot.db.execute("UPDATE guilds SET features = ? WHERE guild_id = ?", (new_json, guild.id))
+        row = await fetchone(
+            self.bot.db, "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,)
+        )
+        new_json = config_service.set_feature(
+            row["features"] if row else None, feature.value, state.value == "on"
+        )
+        await self.bot.db.execute(
+            "UPDATE guilds SET features = ? WHERE guild_id = ?", (new_json, guild.id)
+        )
         await self.bot.db.commit()
         await note_audit(
-            self.bot, guild.id, f"Config: `{feature.value}` set {state.value} by <@{interaction.user.id}>."
+            self.bot,
+            guild.id,
+            f"Config: `{feature.value}` set {state.value} by <@{interaction.user.id}>.",
         )
-        await interaction.response.send_message(f"Done. `{feature.value}` is now {state.value}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Done. `{feature.value}` is now {state.value}.", ephemeral=True
+        )
 
     async def audit_channel(
         self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
@@ -389,19 +459,28 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         )
         await self.bot.db.commit()
         detail = channel.mention if channel is not None else "cleared"
-        await note_audit(self.bot, guild.id, f"Config: audit channel {detail} by <@{interaction.user.id}>.")
+        await note_audit(
+            self.bot, guild.id, f"Config: audit channel {detail} by <@{interaction.user.id}>."
+        )
         await interaction.response.send_message(f"Done. Audit channel {detail}.", ephemeral=True)
 
-    async def minimal(self, interaction: discord.Interaction, state: app_commands.Choice[str]) -> None:
+    async def minimal(
+        self, interaction: discord.Interaction, state: app_commands.Choice[str]
+    ) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
         await guilds_service.ensure_guild(self.bot.db, guild.id)
         await self.bot.db.execute(
-            "UPDATE guilds SET minimal_mode = ? WHERE guild_id = ?", (1 if state.value == "on" else 0, guild.id)
+            "UPDATE guilds SET minimal_mode = ? WHERE guild_id = ?",
+            (1 if state.value == "on" else 0, guild.id),
         )
         await self.bot.db.commit()
-        await note_audit(self.bot, guild.id, f"Config: minimal mode {state.value} by <@{interaction.user.id}>.")
-        await interaction.response.send_message(f"Done. Minimal mode is now {state.value}.", ephemeral=True)
+        await note_audit(
+            self.bot, guild.id, f"Config: minimal mode {state.value} by <@{interaction.user.id}>."
+        )
+        await interaction.response.send_message(
+            f"Done. Minimal mode is now {state.value}.", ephemeral=True
+        )
 
     async def permission(self, interaction: discord.Interaction, key: str, min_rank: int) -> None:
         guild = interaction.guild
@@ -409,7 +488,8 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         if not config_service.valid_permission_key(key):
             valid = ", ".join(sorted(ranks_service.DEFAULT_PERMISSIONS))
             await interaction.response.send_message(
-                voice.decline(f"`{key}` isn't a recognised permission. Valid keys: {valid}."), ephemeral=True
+                voice.decline(f"`{key}` isn't a recognised permission. Valid keys: {valid}."),
+                ephemeral=True,
             )
             return
 
@@ -417,10 +497,12 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         if not config_service.valid_rank_position(min_rank, ladder):
             detail = (
                 f"Valid ranks: {', '.join(f'{e.position} ({e.name})' for e in sorted(ladder, key=lambda e: e.position))}."
-                if ladder else "No rank ladder is configured yet — add one with `/rank ladder-add`."
+                if ladder
+                else "No rank ladder is configured yet — add one with `/rank ladder-add`."
             )
             await interaction.response.send_message(
-                voice.decline(f"Position {min_rank} isn't on this guild's ladder. {detail}"), ephemeral=True
+                voice.decline(f"Position {min_rank} isn't on this guild's ladder. {detail}"),
+                ephemeral=True,
             )
             return
 
@@ -433,9 +515,13 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         await self.bot.db.commit()
         rank_name = config_service.rank_name_for_position(ladder, min_rank)
         await note_audit(
-            self.bot, guild.id, f"Config: `{key}` threshold set to {rank_name} by <@{interaction.user.id}>."
+            self.bot,
+            guild.id,
+            f"Config: `{key}` threshold set to {rank_name} by <@{interaction.user.id}>.",
         )
-        await interaction.response.send_message(f"Done. `{key}` now requires **{rank_name}** or higher.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Done. `{key}` now requires **{rank_name}** or higher.", ephemeral=True
+        )
 
     async def reset(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
@@ -449,7 +535,9 @@ class ConfigCog(commands.Cog, name="ConfigCog"):
         )
         view.message = await interaction.original_response()
 
-    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return
         await view_util.handle_app_command_error(interaction, error, log)

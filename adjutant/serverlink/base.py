@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Union
 
 
 class NotSupported(Exception):
@@ -67,7 +67,7 @@ class Snapshot:
     timestamp: float
 
 
-SnapshotCallback = Callable[[Snapshot], Union[Awaitable[None], None]]
+SnapshotCallback = Callable[[Snapshot], Awaitable[None] | None]
 
 
 class ServerLink(ABC):
@@ -88,12 +88,12 @@ class ServerLink(ABC):
     async def open(self) -> None:
         """Establish any long-lived connection. Default no-op; backends
         without one (null, a2s) don't need to override this."""
-        return None
+        return
 
     async def close(self) -> None:
         """Tear down any long-lived connection. Default no-op. Must be
         idempotent — the cog may call it on a link that never opened."""
-        return None
+        return
 
     # -- reads ----------------------------------------------------------
 

@@ -1,6 +1,6 @@
 """Print row counts and the guilds table from the bot's database.
 
-    .venv\\Scripts\\python.exe tools\\dump_db.py [db_path]
+.venv\\Scripts\\python.exe tools\\dump_db.py [db_path]
 """
 
 import sqlite3

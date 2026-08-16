@@ -16,6 +16,7 @@ change, not a call-site rewrite.
 If the target channel can't be resolved or posted to, the call no-ops —
 audit logging is best-effort and must never break a user-facing flow.
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,19 +69,24 @@ async def post_event(
     if channel is None:
         return
     embed = discord.Embed(
-        title=title, description=description, colour=colour,
+        title=title,
+        description=description,
+        colour=colour,
         timestamp=discord.utils.utcnow(),
     )
     if dump:
         embed.set_footer(text="routine")
-    for name, value, inline in (fields or []):
+    for name, value, inline in fields or []:
         embed.add_field(name=name, value=value, inline=inline)
     try:
         await channel.send(embed=embed)
     except (discord.Forbidden, discord.HTTPException) as e:
         log.warning(
             "audit log post failed in guild %s (channel_id=%s, name=%s): %s",
-            guild.id, channel_id, channel_name, e,
+            guild.id,
+            channel_id,
+            channel_name,
+            e,
         )
 
 
@@ -109,11 +115,12 @@ async def notify_user_dm(
     if member is None:
         return False
     embed = discord.Embed(
-        title=title, description=description,
+        title=title,
+        description=description,
         colour=colour or discord.Colour.blurple(),
         timestamp=discord.utils.utcnow(),
     )
-    for name, value, inline in (fields or []):
+    for name, value, inline in fields or []:
         embed.add_field(name=name, value=value, inline=inline)
     try:
         await member.send(embed=embed)

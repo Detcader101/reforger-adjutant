@@ -12,6 +12,7 @@ the user with a friendlier description of the failure mode, voiced per
 adjutant/voice.py. Every view in the bot inherits from this instead of
 discord.ui.View directly.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,7 +45,10 @@ async def handle_app_command_error(
     cmd = interaction.command.name if interaction.command else "<unknown>"
     ref = _short_correlation_id()
     logger.exception(
-        "Slash command /%s raised (ref=%s): %s", cmd, ref, error,
+        "Slash command /%s raised (ref=%s): %s",
+        cmd,
+        ref,
+        error,
     )
     msg = _friendly_error_message(error, ref)
     try:
@@ -99,7 +103,10 @@ class ErrorHandledView(discord.ui.View):
         ref = _short_correlation_id()
         log.exception(
             "View %s item %r raised (ref=%s): %s",
-            view_name, item_label, ref, error,
+            view_name,
+            item_label,
+            ref,
+            error,
         )
         msg = _friendly_error_message(error, ref)
         try:

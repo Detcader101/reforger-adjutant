@@ -15,10 +15,22 @@ directly — the same trick the library itself uses internally when it
 deserialises a modal-submit interaction (see tests/test_cogs_config.py
 for the same convention).
 """
+
 from __future__ import annotations
 
 import discord
 import pytest
+from fakes import (
+    FakeGuild,
+    all_replies,
+    make_interaction,
+    make_member,
+    make_role,
+    reply_ephemeral,
+    reply_text,
+    run_checks,
+    seed_guild,
+)
 
 from adjutant.cogs.setup import (
     DEFAULT_LADDER,
@@ -36,17 +48,6 @@ from adjutant.cogs.setup import (
     _validate_and_apply_custom_ladder,
 )
 from adjutant.services import templates as templates_service
-from fakes import (
-    FakeGuild,
-    all_replies,
-    make_interaction,
-    make_member,
-    make_role,
-    reply_ephemeral,
-    reply_text,
-    run_checks,
-    seed_guild,
-)
 
 
 @pytest.fixture
@@ -72,6 +73,7 @@ def _admin(guild):
 # --------------------------------------------------------------------------- #
 # default ladder (pre-existing behaviour, kept green)                        #
 # --------------------------------------------------------------------------- #
+
 
 async def test_creating_the_default_ladder_records_every_rank(bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -116,6 +118,7 @@ async def test_a_rank_role_the_admin_made_is_adopted_but_not_marked_bot_created(
 # templates — pure logic (validate_ladder_names)                             #
 # --------------------------------------------------------------------------- #
 
+
 def test_validate_ladder_names_accepts_a_reasonable_ladder():
     assert templates_service.validate_ladder_names(["Recruit", "Private", "NCO"]) == []
 
@@ -159,6 +162,7 @@ def test_validate_ladder_names_reports_every_problem_at_once():
 # templates — declarative data shape                                          #
 # --------------------------------------------------------------------------- #
 
+
 def test_minimal_template_creates_no_roles_or_channels():
     tmpl = templates_service.TEMPLATES["minimal"]
     assert tmpl.ranks == ()
@@ -180,6 +184,7 @@ def test_vanilla_and_milsim_templates_define_ranks_and_channels():
 # templates — application (idempotent create-or-reuse)                       #
 # --------------------------------------------------------------------------- #
 
+
 async def test_applying_vanilla_template_creates_its_ranks_and_channels(bot, guild):
     await seed_guild(bot.db, guild.id)
     tmpl = templates_service.TEMPLATES["vanilla"]
@@ -198,7 +203,7 @@ async def test_applying_milsim_template_scaffolds_ops_channels_under_one_categor
     await seed_guild(bot.db, guild.id)
     tmpl = templates_service.TEMPLATES["milsim"]
 
-    ranks, channels = await _apply_template(bot, guild, tmpl)
+    ranks, _ = await _apply_template(bot, guild, tmpl)
 
     assert len(ranks) == len(tmpl.ranks)
     operations = next(c for c in guild.categories if c.name == "Operations")
@@ -218,7 +223,9 @@ async def test_reapplying_a_template_creates_no_duplicate_roles_or_channels(bot,
 
     assert sorted(r.name for r in guild.roles) == roles_after_first
     assert sorted(c.name for c in guild.categories) == categories_after_first
-    assert sorted(ch.name for cat in guild.categories for ch in cat.channels) == channels_after_first
+    assert (
+        sorted(ch.name for cat in guild.categories for ch in cat.channels) == channels_after_first
+    )
 
 
 async def test_applying_a_template_with_a_channel_name_that_already_exists_reuses_it(bot, guild):
@@ -239,6 +246,7 @@ async def test_applying_a_template_with_a_channel_name_that_already_exists_reuse
 # custom rank ladders (/setup ranks)                                          #
 # --------------------------------------------------------------------------- #
 
+
 async def test_applying_a_custom_ladder_creates_roles_in_order(bot, guild):
     await seed_guild(bot.db, guild.id)
 
@@ -253,7 +261,9 @@ async def test_applying_a_custom_ladder_creates_roles_in_order(bot, guild):
     assert all(r["bot_created"] == 1 for r in rows)
 
 
-async def test_custom_ladder_reuses_a_same_named_existing_role_without_marking_it_bot_created(bot, guild):
+async def test_custom_ladder_reuses_a_same_named_existing_role_without_marking_it_bot_created(
+    bot, guild
+):
     await seed_guild(bot.db, guild.id)
     existing = await guild.create_role(name="Colonel")
 
@@ -277,7 +287,9 @@ async def test_reapplying_a_custom_ladder_preserves_bot_created_on_roles_it_made
 
     await _apply_custom_ladder(bot, guild, ["Recruit", "Private", "Officer"])
 
-    rows = await bot.db.execute_fetchall("SELECT name, bot_created FROM ranks WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT name, bot_created FROM ranks WHERE guild_id = ?", (guild.id,)
+    )
     assert all(r["bot_created"] == 1 for r in rows)
 
 
@@ -312,6 +324,7 @@ async def test_invalid_custom_ladder_is_declined_and_changes_nothing(bot, guild)
 # --------------------------------------------------------------------------- #
 # /setup — bare command (opens SetupView; check/ranks/quick moved to /admin) #
 # --------------------------------------------------------------------------- #
+
 
 async def test_bare_setup_command_opens_the_wizard_for_an_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -355,7 +368,9 @@ async def test_rank_ladder_modal_submit_applies_the_typed_ladder(bot, guild):
 async def test_rank_ladder_modal_submit_declines_a_duplicate_ladder_and_changes_nothing(bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
-    interaction = make_interaction(bot, guild=guild, user=admin, command_name="adjutant ranks-modal")
+    interaction = make_interaction(
+        bot, guild=guild, user=admin, command_name="adjutant ranks-modal"
+    )
     modal = RankLadderModal(bot, guild)
     modal.ranks_input._value = "Recruit\nrecruit"
 
@@ -371,10 +386,16 @@ async def test_rank_ladder_modal_submit_declines_a_duplicate_ladder_and_changes_
 # preflight now; covered in tests/test_cogs_admin.py)                        #
 # --------------------------------------------------------------------------- #
 
+
 def test_missing_permissions_lists_only_what_is_absent():
     perms = discord.Permissions(
-        view_channel=True, send_messages=True, embed_links=True, attach_files=True,
-        read_message_history=True, connect=True, speak=True,
+        view_channel=True,
+        send_messages=True,
+        embed_links=True,
+        attach_files=True,
+        read_message_history=True,
+        connect=True,
+        speak=True,
         # manage_roles and manage_channels deliberately left out
     )
 
@@ -427,8 +448,13 @@ def test_preflight_embed_never_recommends_granting_administrator(guild):
 
 def test_preflight_embed_names_missing_permissions_in_plain_terms(guild):
     guild.me.guild_permissions = discord.Permissions(
-        view_channel=True, send_messages=True, embed_links=True, attach_files=True,
-        read_message_history=True, connect=True, speak=True,
+        view_channel=True,
+        send_messages=True,
+        embed_links=True,
+        attach_files=True,
+        read_message_history=True,
+        connect=True,
+        speak=True,
     )
 
     embed = _preflight_embed(guild, minimal=False)

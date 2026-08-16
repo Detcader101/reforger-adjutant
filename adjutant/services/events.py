@@ -128,8 +128,12 @@ async def get_event(conn: aiosqlite.Connection, event_id: int) -> Event | None:
     return _row_to_event(row) if row is not None else None
 
 
-async def get_event_by_announce_message(conn: aiosqlite.Connection, message_id: int) -> Event | None:
-    async with conn.execute("SELECT * FROM events WHERE announce_message = ?", (message_id,)) as cur:
+async def get_event_by_announce_message(
+    conn: aiosqlite.Connection, message_id: int
+) -> Event | None:
+    async with conn.execute(
+        "SELECT * FROM events WHERE announce_message = ?", (message_id,)
+    ) as cur:
         row = await cur.fetchone()
     return _row_to_event(row) if row is not None else None
 
@@ -207,7 +211,9 @@ async def mark_reminded(conn: aiosqlite.Connection, event_id: int) -> None:
     await conn.commit()
 
 
-async def events_due_reminder(conn: aiosqlite.Connection, now: datetime, lead: timedelta) -> list[Event]:
+async def events_due_reminder(
+    conn: aiosqlite.Connection, now: datetime, lead: timedelta
+) -> list[Event]:
     """Live (open/closed) events starting within `lead` of `now`, not yet
     reminded, and not already started."""
     rows = await conn.execute_fetchall(

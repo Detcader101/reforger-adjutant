@@ -22,7 +22,7 @@ class Config:
     git_subject: str = ""
 
     @classmethod
-    def load(cls, env_file: str | os.PathLike | None = None) -> "Config":
+    def load(cls, env_file: str | os.PathLike | None = None) -> Config:
         load_dotenv(env_file)
         token = os.environ.get("DISCORD_TOKEN", "").strip()
         if not token:
@@ -31,9 +31,7 @@ class Config:
                 "bot token from the Discord developer portal."
             )
         raw_guilds = os.environ.get("DEV_GUILD_IDS", "").strip()
-        dev_guild_ids = tuple(
-            int(g) for g in (p.strip() for p in raw_guilds.split(",")) if g
-        )
+        dev_guild_ids = tuple(int(g) for g in (p.strip() for p in raw_guilds.split(",")) if g)
         db_path = Path(os.environ.get("ADJUTANT_DB", "").strip() or "data/adjutant.db")
         return cls(
             token=token,

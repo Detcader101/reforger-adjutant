@@ -10,20 +10,21 @@ Two groups:
     MagicMock objects that quack like discord.py's Guild/Member/Role for
     the narrow set of attributes cogs touch.
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 from unittest.mock import MagicMock
 
 import pytest
 
 from adjutant import db as database
 
-
 # --------------------------------------------------------------------------- #
 # DB isolation                                                                 #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.fixture
 async def tmp_conn(tmp_path):
@@ -43,11 +44,13 @@ async def tmp_conn(tmp_path):
 # Discord mocks                                                                #
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class FakeRole:
     """Minimal stand-in for discord.Role — only the attributes cogs
     read. `id` is auto-assigned from an incrementing counter so equality-
     by-id works between fixtures."""
+
     id: int
     name: str
     position: int = 1
@@ -96,11 +99,13 @@ def mock_guild(make_role):
         role = make_role(name)
         guild.roles.append(role)
         return role
+
     guild.create_role = _create_role
 
     async def _edit_role_positions(positions, reason=None):
         for role, pos in positions.items():
             role.position = pos
+
     guild.edit_role_positions = _edit_role_positions
 
     guild.text_channels = []  # channel_util lookups get nothing by default
@@ -111,8 +116,9 @@ def mock_guild(make_role):
     return guild
 
 
-def _make_member(guild, *, member_id: int, display_name: str = "Tester",
-                 roles: Iterable[FakeRole] = ()) -> MagicMock:
+def _make_member(
+    guild, *, member_id: int, display_name: str = "Tester", roles: Iterable[FakeRole] = ()
+) -> MagicMock:
     member = MagicMock()
     member.id = member_id
     member.guild = guild
@@ -125,14 +131,17 @@ def _make_member(guild, *, member_id: int, display_name: str = "Tester",
         for r in new_roles:
             if r not in member.roles:
                 member.roles.append(r)
+
     member.add_roles = _add_roles
 
     async def _remove_roles(*to_remove, reason=None):
         member.roles = [r for r in member.roles if r not in to_remove]
+
     member.remove_roles = _remove_roles
 
     async def _send(*args, **kwargs):
         return MagicMock()
+
     member.send = _send
 
     guild._member_map[member_id] = member
@@ -149,12 +158,17 @@ def mock_member(mock_guild):
 @pytest.fixture
 def make_member(mock_guild):
     """Factory form: `make_member(member_id=..., roles=[...])` in a test."""
-    def _factory(*, member_id: int, display_name: str = "Tester",
-                 roles: Iterable[FakeRole] = ()) -> MagicMock:
+
+    def _factory(
+        *, member_id: int, display_name: str = "Tester", roles: Iterable[FakeRole] = ()
+    ) -> MagicMock:
         return _make_member(
-            mock_guild, member_id=member_id,
-            display_name=display_name, roles=roles,
+            mock_guild,
+            member_id=member_id,
+            display_name=display_name,
+            roles=roles,
         )
+
     return _factory
 
 
@@ -162,10 +176,12 @@ def make_member(mock_guild):
 # Cog-layer fakes (tests/fakes.py) — richer, isinstance()-safe stand-ins      #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture
 def fake_bot(tmp_conn):
     """A FakeBot (see tests/fakes.py) wired to the same real migrated
     connection tmp_conn hands out. Lazily imported so this fixture has zero
     effect on the plain services tests that never request it."""
     from fakes import FakeBot
+
     return FakeBot(tmp_conn)

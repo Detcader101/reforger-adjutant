@@ -26,14 +26,16 @@ Design notes
   constructed for real via the helpers below, so error-handling paths run
   against the actual exception types view_util.py checks with isinstance.
 """
+
 from __future__ import annotations
 
 import asyncio
 import inspect
 import itertools
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Callable, Iterable
+from typing import Any
 from unittest.mock import MagicMock
 
 import discord
@@ -73,7 +75,9 @@ def not_found(message: str = "Unknown Message") -> discord.NotFound:
     return _http_exception(discord.NotFound, 404, "Not Found", message)
 
 
-def http_exception(status: int = 500, message: str = "Internal Server Error") -> discord.HTTPException:
+def http_exception(
+    status: int = 500, message: str = "Internal Server Error"
+) -> discord.HTTPException:
     return _http_exception(discord.HTTPException, status, "Error", message)
 
 
@@ -108,7 +112,7 @@ def make_role(name: str, position: int = 1, *, mentionable: bool = False) -> Fak
     return FakeRole(id=next_id(), name=name, position=position, mentionable=mentionable)
 
 
-def _attach_deletable(role: FakeRole, guild: "FakeGuild") -> FakeRole:
+def _attach_deletable(role: FakeRole, guild: FakeGuild) -> FakeRole:
     """Real discord.Role has an async delete() — bot-created roles (team
     roles, event Op roles, rank-ladder roles) get deleted by the cogs, so
     roles handed back from guild.create_role need one too. default_role and
@@ -118,6 +122,7 @@ def _attach_deletable(role: FakeRole, guild: "FakeGuild") -> FakeRole:
 
     def fail_next_delete(exc: Exception) -> None:
         role._fail_delete = exc  # type: ignore[attr-defined]
+
     role.fail_next_delete = fail_next_delete  # type: ignore[attr-defined]
 
     async def _delete(reason: str | None = None) -> None:
@@ -126,6 +131,7 @@ def _attach_deletable(role: FakeRole, guild: "FakeGuild") -> FakeRole:
             raise exc
         if role in guild.roles:
             guild.roles.remove(role)
+
     role.delete = _delete  # type: ignore[attr-defined]
     return role
 
@@ -179,12 +185,18 @@ class FakeMessage:
         view: discord.ui.View | None = "__unset__",  # type: ignore[assignment]
         attachments: list[Any] | None = None,
         **kwargs: Any,
-    ) -> "FakeMessage":
+    ) -> FakeMessage:
         if self._fail_edit is not None:
             exc, self._fail_edit = self._fail_edit, None
             raise exc
         self.edits.append(
-            {"content": content, "embed": embed, "embeds": embeds, "view": view, "attachments": attachments}
+            {
+                "content": content,
+                "embed": embed,
+                "embeds": embeds,
+                "view": view,
+                "attachments": attachments,
+            }
         )
         if content is not None:
             self.content = content
@@ -209,8 +221,14 @@ class FakeMessage:
 # --------------------------------------------------------------------------- #
 
 
-def _make_text_channel(guild: "FakeGuild", *, name: str, category: Any = None,
-                        overwrites: dict | None = None, id: int | None = None) -> Any:
+def _make_text_channel(
+    guild: FakeGuild,
+    *,
+    name: str,
+    category: Any = None,
+    overwrites: dict | None = None,
+    id: int | None = None,
+) -> Any:
     ch = MagicMock(spec=discord.TextChannel)
     ch.id = id if id is not None else next_id()
     ch.name = name
@@ -225,16 +243,28 @@ def _make_text_channel(guild: "FakeGuild", *, name: str, category: Any = None,
 
     def fail_next_send(exc: Exception) -> None:
         ch._fail_send = exc
+
     ch.fail_next_send = fail_next_send
 
-    async def _send(content=None, *, embed=None, embeds=None, view=None, file=None, files=None, **kwargs):
+    async def _send(
+        content=None, *, embed=None, embeds=None, view=None, file=None, files=None, **kwargs
+    ):
         if ch._fail_send is not None:
             exc, ch._fail_send = ch._fail_send, None
             raise exc
-        msg = FakeMessage(channel=ch, content=content, embed=embed, embeds=embeds, view=view, file=file, files=files)
+        msg = FakeMessage(
+            channel=ch,
+            content=content,
+            embed=embed,
+            embeds=embeds,
+            view=view,
+            file=file,
+            files=files,
+        )
         ch._messages[msg.id] = msg
         ch.sent.append(msg)
         return msg
+
     ch.send = _send
 
     async def _fetch_message(message_id):
@@ -242,6 +272,7 @@ def _make_text_channel(guild: "FakeGuild", *, name: str, category: Any = None,
         if msg is None or msg.deleted:
             raise not_found(f"Unknown Message {message_id}")
         return msg
+
     ch.fetch_message = _fetch_message
 
     async def _delete(reason: str | None = None):
@@ -249,13 +280,20 @@ def _make_text_channel(guild: "FakeGuild", *, name: str, category: Any = None,
         if category is not None and ch in category.channels:
             category.channels.remove(ch)
         guild._channels.pop(ch.id, None)
+
     ch.delete = _delete
 
     return ch
 
 
-def _make_voice_channel(guild: "FakeGuild", *, name: str, category: Any = None,
-                         overwrites: dict | None = None, id: int | None = None) -> Any:
+def _make_voice_channel(
+    guild: FakeGuild,
+    *,
+    name: str,
+    category: Any = None,
+    overwrites: dict | None = None,
+    id: int | None = None,
+) -> Any:
     ch = MagicMock(spec=discord.VoiceChannel)
     ch.id = id if id is not None else next_id()
     ch.name = name
@@ -270,13 +308,15 @@ def _make_voice_channel(guild: "FakeGuild", *, name: str, category: Any = None,
         if category is not None and ch in category.channels:
             category.channels.remove(ch)
         guild._channels.pop(ch.id, None)
+
     ch.delete = _delete
 
     return ch
 
 
-def _make_category(guild: "FakeGuild", *, name: str, overwrites: dict | None = None,
-                    id: int | None = None) -> Any:
+def _make_category(
+    guild: FakeGuild, *, name: str, overwrites: dict | None = None, id: int | None = None
+) -> Any:
     cat = MagicMock(spec=discord.CategoryChannel)
     cat.id = id if id is not None else next_id()
     cat.name = name
@@ -290,6 +330,7 @@ def _make_category(guild: "FakeGuild", *, name: str, overwrites: dict | None = N
 
     def fail_next_create_text_channel(exc: Exception) -> None:
         cat._fail_create_text = exc
+
     cat.fail_next_create_text_channel = fail_next_create_text_channel
 
     async def _create_text_channel(name, *, overwrites=None, reason=None, **kwargs):
@@ -300,6 +341,7 @@ def _make_category(guild: "FakeGuild", *, name: str, overwrites: dict | None = N
         cat.channels.append(ch)
         guild._channels[ch.id] = ch
         return ch
+
     cat.create_text_channel = _create_text_channel
 
     async def _create_voice_channel(name, *, overwrites=None, reason=None, **kwargs):
@@ -310,11 +352,13 @@ def _make_category(guild: "FakeGuild", *, name: str, overwrites: dict | None = N
         cat.channels.append(ch)
         guild._channels[ch.id] = ch
         return ch
+
     cat.create_voice_channel = _create_voice_channel
 
     async def _delete(reason: str | None = None):
         cat.deleted = True
         guild._channels.pop(cat.id, None)
+
     cat.delete = _delete
 
     return cat
@@ -339,8 +383,13 @@ class FakeGuild:
     """No isinstance(guild, discord.Guild) check exists anywhere in the cogs,
     so this is a plain class rather than a MagicMock(spec=...)."""
 
-    def __init__(self, *, id: int | None = None, name: str = "Adjutant Test Guild",
-                 owner_id: int | None = None):
+    def __init__(
+        self,
+        *,
+        id: int | None = None,
+        name: str = "Adjutant Test Guild",
+        owner_id: int | None = None,
+    ):
         self.id = id if id is not None else next_id()
         self.name = name
         self.owner_id = owner_id if owner_id is not None else next_id()
@@ -364,8 +413,9 @@ class FakeGuild:
     def fail_next_create_role(self, exc: Exception) -> None:
         self._fail_create_role = exc
 
-    async def create_role(self, name: str, *, reason: str | None = None,
-                           mentionable: bool = False, **kwargs: Any) -> FakeRole:
+    async def create_role(
+        self, name: str, *, reason: str | None = None, mentionable: bool = False, **kwargs: Any
+    ) -> FakeRole:
         if self._fail_create_role is not None:
             exc, self._fail_create_role = self._fail_create_role, None
             raise exc
@@ -396,8 +446,9 @@ class FakeGuild:
     def fail_next_create_category(self, exc: Exception) -> None:
         self._fail_create_category = exc
 
-    async def create_category(self, name: str, *, overwrites: dict | None = None,
-                               reason: str | None = None) -> Any:
+    async def create_category(
+        self, name: str, *, overwrites: dict | None = None, reason: str | None = None
+    ) -> Any:
         if self._fail_create_category is not None:
             exc, self._fail_create_category = self._fail_create_category, None
             raise exc
@@ -418,8 +469,14 @@ class FakeGuild:
 # --------------------------------------------------------------------------- #
 
 
-def make_member(guild: FakeGuild, *, member_id: int | None = None, display_name: str = "Tester",
-                 roles: Iterable[FakeRole] = (), is_admin: bool = False) -> Any:
+def make_member(
+    guild: FakeGuild,
+    *,
+    member_id: int | None = None,
+    display_name: str = "Tester",
+    roles: Iterable[FakeRole] = (),
+    is_admin: bool = False,
+) -> Any:
     """MagicMock(spec=discord.Member) — the spec= is what makes
     `isinstance(member, discord.Member)` pass, which roles.py/admin.py/
     events.py all rely on."""
@@ -440,14 +497,17 @@ def make_member(guild: FakeGuild, *, member_id: int | None = None, display_name:
         for r in new_roles:
             if r not in member.roles:
                 member.roles.append(r)
+
     member.add_roles = _add_roles
 
     async def _remove_roles(*to_remove: FakeRole, reason: str | None = None) -> None:
         member.roles = [r for r in member.roles if r not in to_remove]
+
     member.remove_roles = _remove_roles
 
     async def _send(*args: Any, **kwargs: Any) -> FakeMessage:
         return FakeMessage(content=args[0] if args else kwargs.get("content"))
+
     member.send = _send
 
     guild._member_map[mid] = member
@@ -510,7 +570,7 @@ class FakeBot:
 
 
 class FakeInteractionResponse:
-    def __init__(self, interaction: "FakeInteraction"):
+    def __init__(self, interaction: FakeInteraction):
         self._interaction = interaction
         self._done = False
         self.deferred = False
@@ -546,11 +606,22 @@ class FakeInteractionResponse:
             raise discord.InteractionResponded(self._interaction)  # type: ignore[arg-type]
         self._done = True
         msg = FakeMessage(
-            channel=self._interaction.channel, content=content, embed=embed, embeds=embeds,
-            view=view, file=file, files=files,
+            channel=self._interaction.channel,
+            content=content,
+            embed=embed,
+            embeds=embeds,
+            view=view,
+            file=file,
+            files=files,
         )
         self.messages.append(
-            {"content": content, "embed": embed, "embeds": embeds, "view": view, "ephemeral": ephemeral}
+            {
+                "content": content,
+                "embed": embed,
+                "embeds": embeds,
+                "view": view,
+                "ephemeral": ephemeral,
+            }
         )
         self.message = msg
 
@@ -568,7 +639,13 @@ class FakeInteractionResponse:
             raise discord.InteractionResponded(self._interaction)  # type: ignore[arg-type]
         self._done = True
         self.edits.append(
-            {"content": content, "embed": embed, "embeds": embeds, "view": view, "attachments": attachments}
+            {
+                "content": content,
+                "embed": embed,
+                "embeds": embeds,
+                "view": view,
+                "attachments": attachments,
+            }
         )
         target = self._interaction.message
         if target is not None:
@@ -588,7 +665,7 @@ class FakeInteractionResponse:
 
 
 class FakeFollowup:
-    def __init__(self, interaction: "FakeInteraction"):
+    def __init__(self, interaction: FakeInteraction):
         self._interaction = interaction
         self.messages: list[dict[str, Any]] = []
 
@@ -605,12 +682,23 @@ class FakeFollowup:
         **kwargs: Any,
     ) -> FakeMessage:
         msg = FakeMessage(
-            channel=self._interaction.channel, content=content, embed=embed, embeds=embeds,
-            view=view, file=file, files=files,
+            channel=self._interaction.channel,
+            content=content,
+            embed=embed,
+            embeds=embeds,
+            view=view,
+            file=file,
+            files=files,
         )
         self.messages.append(
-            {"content": content, "embed": embed, "embeds": embeds, "view": view, "ephemeral": ephemeral,
-             "message": msg}
+            {
+                "content": content,
+                "embed": embed,
+                "embeds": embeds,
+                "view": view,
+                "ephemeral": ephemeral,
+                "message": msg,
+            }
         )
         # Mirrors real discord.py: after response.defer(), the FIRST
         # followup.send() is what interaction.original_response() fetches
@@ -665,7 +753,12 @@ def make_interaction(
     command_name: str | None = None,
 ) -> FakeInteraction:
     return FakeInteraction(
-        bot=bot, guild=guild, user=user, channel=channel, message=message, command_name=command_name,
+        bot=bot,
+        guild=guild,
+        user=user,
+        channel=channel,
+        message=message,
+        command_name=command_name,
     )
 
 
@@ -711,8 +804,9 @@ def reply_ephemeral(interaction: FakeInteraction) -> bool | None:
 # --------------------------------------------------------------------------- #
 
 
-async def seed_guild(conn: Any, guild_id: int, *, minimal_mode: bool = False,
-                      audit_channel: int | None = None) -> None:
+async def seed_guild(
+    conn: Any, guild_id: int, *, minimal_mode: bool = False, audit_channel: int | None = None
+) -> None:
     """Every guild-scoped table has `guild_id REFERENCES guilds(guild_id)`
     and the connection runs with `PRAGMA foreign_keys=ON` — inserting a
     guilds row first is required, not optional, before writing ranks/teams/
