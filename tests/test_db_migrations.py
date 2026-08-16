@@ -38,3 +38,17 @@ def test_non_conforming_filenames_are_ignored(tmp_path: Path):
     (tmp_path / "02_bad.sql").write_text("SELECT 1;")
     found = database.discover_migrations(tmp_path)
     assert [n for n, _ in found] == [1]
+
+
+def test_shipped_migrations_are_uniquely_and_contiguously_numbered():
+    numbers = [n for n, _ in database.discover_migrations()]
+    assert numbers, "expected at least one shipped migration"
+
+    duplicates = len(numbers) - len(set(numbers))
+    assert duplicates == 0, f"duplicate migration numbers detected: {numbers}"
+
+    expected = list(range(1, len(numbers) + 1))
+    assert numbers == expected, (
+        "shipped migration numbers must start at 1 and be contiguous with no gaps, "
+        f"got {numbers}"
+    )
