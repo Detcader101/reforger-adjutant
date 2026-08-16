@@ -4,8 +4,9 @@ The backlog is [**GitHub Issues**](https://github.com/Detcader101/reforger-adjut
 Not a file, not a chat thread. If it isn't an issue, it isn't on the backlog, and
 nobody can claim it or see that you're already doing it.
 
-The **Adjutant Backlog** project board is a *view* over those issues, not a
-second source of truth. Never move a card without the issue reflecting it.
+The [**Adjutant Backlog** board](https://github.com/users/Detcader101/projects/4)
+is a *view* over those issues, not a second source of truth. Never move a card
+without the issue reflecting it.
 
 ---
 
