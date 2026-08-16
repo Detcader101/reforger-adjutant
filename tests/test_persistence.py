@@ -5,6 +5,7 @@ Uses a real aiosqlite connection (migrated fresh via the `tmp_conn`
 fixture from conftest.py) since these helpers operate directly against
 the DB rather than being mocked.
 """
+
 from __future__ import annotations
 
 from adjutant.services import persistence
@@ -18,6 +19,7 @@ async def _with_guild(conn, guild_id: int = 1) -> None:
 # --------------------------------------------------------------------------- #
 # bot_state                                                                    #
 # --------------------------------------------------------------------------- #
+
 
 async def test_get_bot_state_returns_none_when_key_is_unset(tmp_conn):
     await _with_guild(tmp_conn)
@@ -49,6 +51,7 @@ async def test_bot_state_is_scoped_per_guild(tmp_conn):
 # posted_messages                                                              #
 # --------------------------------------------------------------------------- #
 
+
 async def test_find_posted_message_returns_none_when_nothing_recorded(tmp_conn):
     await _with_guild(tmp_conn)
     found = await persistence.find_posted_message(tmp_conn, "weekly_recap", "2026-W17", 1)
@@ -58,8 +61,12 @@ async def test_find_posted_message_returns_none_when_nothing_recorded(tmp_conn):
 async def test_record_then_find_posted_message_round_trips(tmp_conn):
     await _with_guild(tmp_conn)
     await persistence.record_posted_message(
-        tmp_conn, kind="weekly_recap", identity="2026-W17", guild_id=1,
-        channel_id=555, message_id=777,
+        tmp_conn,
+        kind="weekly_recap",
+        identity="2026-W17",
+        guild_id=1,
+        channel_id=555,
+        message_id=777,
     )
     found = await persistence.find_posted_message(tmp_conn, "weekly_recap", "2026-W17", 1)
     assert found is not None
@@ -70,12 +77,20 @@ async def test_record_then_find_posted_message_round_trips(tmp_conn):
 async def test_recording_the_same_identity_twice_keeps_the_first_record(tmp_conn):
     await _with_guild(tmp_conn)
     await persistence.record_posted_message(
-        tmp_conn, kind="weekly_recap", identity="2026-W17", guild_id=1,
-        channel_id=1, message_id=100,
+        tmp_conn,
+        kind="weekly_recap",
+        identity="2026-W17",
+        guild_id=1,
+        channel_id=1,
+        message_id=100,
     )
     await persistence.record_posted_message(
-        tmp_conn, kind="weekly_recap", identity="2026-W17", guild_id=1,
-        channel_id=2, message_id=200,
+        tmp_conn,
+        kind="weekly_recap",
+        identity="2026-W17",
+        guild_id=1,
+        channel_id=2,
+        message_id=200,
     )
     found = await persistence.find_posted_message(tmp_conn, "weekly_recap", "2026-W17", 1)
     assert found["message_id"] == 100
@@ -84,8 +99,12 @@ async def test_recording_the_same_identity_twice_keeps_the_first_record(tmp_conn
 async def test_posted_messages_are_scoped_by_kind(tmp_conn):
     await _with_guild(tmp_conn)
     await persistence.record_posted_message(
-        tmp_conn, kind="weekly_recap", identity="X", guild_id=1,
-        channel_id=1, message_id=100,
+        tmp_conn,
+        kind="weekly_recap",
+        identity="X",
+        guild_id=1,
+        channel_id=1,
+        message_id=100,
     )
     found = await persistence.find_posted_message(tmp_conn, "event_reminder", "X", 1)
     assert found is None
@@ -95,8 +114,12 @@ async def test_posted_messages_are_scoped_by_guild(tmp_conn):
     await _with_guild(tmp_conn, 1)
     await _with_guild(tmp_conn, 2)
     await persistence.record_posted_message(
-        tmp_conn, kind="weekly_recap", identity="X", guild_id=1,
-        channel_id=1, message_id=100,
+        tmp_conn,
+        kind="weekly_recap",
+        identity="X",
+        guild_id=1,
+        channel_id=1,
+        message_id=100,
     )
     found = await persistence.find_posted_message(tmp_conn, "weekly_recap", "X", 2)
     assert found is None
@@ -105,6 +128,7 @@ async def test_posted_messages_are_scoped_by_guild(tmp_conn):
 # --------------------------------------------------------------------------- #
 # panels                                                                       #
 # --------------------------------------------------------------------------- #
+
 
 async def test_get_panel_returns_none_when_unset(tmp_conn):
     await _with_guild(tmp_conn)

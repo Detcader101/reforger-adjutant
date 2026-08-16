@@ -12,7 +12,6 @@ from PIL import Image
 
 from adjutant.services import mapping
 
-
 # ---------------------------------------------------------------------------
 # Terrain registry
 # ---------------------------------------------------------------------------
@@ -222,7 +221,9 @@ def test_render_map_draws_a_marker_that_is_visually_distinct_from_the_background
     terrain = mapping.TERRAINS["arland"]
     size = 400
     background = mapping.render_map("arland", [], size=size)
-    marker = mapping.Marker(kind="friendly", label="1-1", x=terrain.width_m / 2, z=terrain.height_m / 2)
+    marker = mapping.Marker(
+        kind="friendly", label="1-1", x=terrain.width_m / 2, z=terrain.height_m / 2
+    )
     with_marker = mapping.render_map("arland", [marker], size=size)
     px, py = mapping.world_to_pixel(marker.x, marker.z, terrain, size)
     sample_at_marker = with_marker.getpixel((int(px), int(py)))
@@ -235,7 +236,6 @@ def test_marker_kinds_lists_the_four_recognised_kinds_for_command_choices():
 
 
 def test_render_map_draws_each_marker_kind_without_error():
-    terrain = mapping.TERRAINS["everon"]
     markers = [
         mapping.Marker(kind="objective", label="Obj A", x=1000, z=1000),
         mapping.Marker(kind="friendly", label="1st Sqd", x=2000, z=2000),

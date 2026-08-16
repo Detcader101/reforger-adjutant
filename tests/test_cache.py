@@ -6,6 +6,7 @@ of sleeping, so they're deterministic and instant. Single-flight tests
 use a short real `asyncio.sleep` inside the factory so concurrent
 callers genuinely interleave rather than running one-after-another.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,7 @@ def _fake_clock(monkeypatch, start: float = 1_000.0) -> dict:
 # --------------------------------------------------------------------------- #
 # basic caching + TTL                                                         #
 # --------------------------------------------------------------------------- #
+
 
 async def test_first_call_for_a_key_invokes_the_factory():
     cache = TTLCache()
@@ -143,6 +145,7 @@ async def test_clear_forces_every_key_to_refetch(monkeypatch):
 # single-flight dedupe                                                        #
 # --------------------------------------------------------------------------- #
 
+
 async def test_concurrent_calls_for_the_same_key_invoke_the_factory_once():
     cache = TTLCache()
     calls = []
@@ -199,6 +202,7 @@ async def test_force_refresh_still_single_flights_concurrent_callers(monkeypatch
 # --------------------------------------------------------------------------- #
 # failures are not cached                                                     #
 # --------------------------------------------------------------------------- #
+
 
 async def test_a_failed_fetch_is_not_cached_and_the_next_call_retries():
     cache = TTLCache()

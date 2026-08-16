@@ -39,9 +39,7 @@ async def connect(db_path: Path) -> aiosqlite.Connection:
 
 
 async def _migrate(db: aiosqlite.Connection) -> None:
-    await db.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)"
-    )
+    await db.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     async with db.execute("SELECT MAX(version) AS v FROM schema_version") as cur:
         row = await cur.fetchone()
     current = row["v"] or 0

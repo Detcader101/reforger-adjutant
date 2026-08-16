@@ -15,6 +15,7 @@ tests below poke the private `_value` backing attribute directly — the
 same trick the library itself uses internally when it deserialises a
 modal-submit interaction.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,14 +23,6 @@ from types import SimpleNamespace
 
 import pytest
 from discord import app_commands
-
-from adjutant.cogs.config import (
-    ConfigCog,
-    ConfigPanelView,
-    PermissionThresholdModal,
-    ResetConfirmModal,
-    ResetConfirmView,
-)
 from fakes import (
     FakeGuild,
     make_interaction,
@@ -39,6 +32,14 @@ from fakes import (
     reply_ephemeral,
     reply_text,
     seed_guild,
+)
+
+from adjutant.cogs.config import (
+    ConfigCog,
+    ConfigPanelView,
+    PermissionThresholdModal,
+    ResetConfirmModal,
+    ResetConfirmView,
 )
 
 
@@ -84,6 +85,7 @@ async def _open_panel(cog, bot, guild, admin):
 # show (called from the panel button — no direct slash command any more)      #
 # --------------------------------------------------------------------------- #
 
+
 async def test_show_reflects_stored_config(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     await _add_rank(bot, guild, "NCO", 2)
@@ -107,6 +109,7 @@ async def test_show_reflects_stored_config(cog, bot, guild):
 # feature (called from /admin feature)                                       #
 # --------------------------------------------------------------------------- #
 
+
 async def test_toggling_a_feature_on_persists_and_is_idempotent(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -117,7 +120,9 @@ async def test_toggling_a_feature_on_persists_and_is_idempotent(cog, bot, guild)
         interaction = make_interaction(bot, guild=guild, user=admin, command_name="config feature")
         await cog.feature(interaction, feature=feature, state=on)
 
-    rows = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert json.loads(rows[0]["features"]) == {"teams": True}
 
 
@@ -136,7 +141,9 @@ async def test_toggling_a_feature_off_persists(cog, bot, guild):
         state=app_commands.Choice(name="off", value="off"),
     )
 
-    rows = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert json.loads(rows[0]["features"]) == {"teams": False}
 
 
@@ -144,19 +151,28 @@ async def test_toggling_a_feature_off_persists(cog, bot, guild):
 # audit_channel (called from /admin audit-channel)                           #
 # --------------------------------------------------------------------------- #
 
+
 async def test_audit_channel_can_be_set_then_cleared(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
     channel = guild.create_standalone_text_channel(name="audit-log")
 
-    set_interaction = make_interaction(bot, guild=guild, user=admin, command_name="config audit-channel")
+    set_interaction = make_interaction(
+        bot, guild=guild, user=admin, command_name="config audit-channel"
+    )
     await cog.audit_channel(set_interaction, channel=channel)
-    rows = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows[0]["audit_channel"] == channel.id
 
-    clear_interaction = make_interaction(bot, guild=guild, user=admin, command_name="config audit-channel")
+    clear_interaction = make_interaction(
+        bot, guild=guild, user=admin, command_name="config audit-channel"
+    )
     await cog.audit_channel(clear_interaction, channel=None)
-    rows2 = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows2 = await bot.db.execute_fetchall(
+        "SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows2[0]["audit_channel"] is None
     assert "cleared" in reply_text(clear_interaction).lower()
 
@@ -164,6 +180,7 @@ async def test_audit_channel_can_be_set_then_cleared(cog, bot, guild):
 # --------------------------------------------------------------------------- #
 # permission (called from /admin permission)                                 #
 # --------------------------------------------------------------------------- #
+
 
 async def test_permission_declines_an_unrecognised_key_and_changes_nothing(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -174,7 +191,9 @@ async def test_permission_declines_an_unrecognised_key_and_changes_nothing(cog, 
 
     assert "recognised" in reply_text(interaction).lower()
     assert reply_ephemeral(interaction) is True
-    rows = await bot.db.execute_fetchall("SELECT * FROM permissions WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM permissions WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == []
 
 
@@ -188,7 +207,9 @@ async def test_permission_declines_a_rank_not_on_the_ladder_and_changes_nothing(
 
     assert "isn't on this guild's ladder" in reply_text(interaction).lower()
     assert reply_ephemeral(interaction) is True
-    rows = await bot.db.execute_fetchall("SELECT * FROM permissions WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM permissions WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == []
 
 
@@ -201,7 +222,8 @@ async def test_permission_sets_a_valid_threshold(cog, bot, guild):
     await cog.permission(interaction, key="teams.manage", min_rank=3)
 
     rows = await bot.db.execute_fetchall(
-        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?", (guild.id, "teams.manage")
+        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?",
+        (guild.id, "teams.manage"),
     )
     assert len(rows) == 1
     assert rows[0]["min_rank"] == 3
@@ -211,6 +233,7 @@ async def test_permission_sets_a_valid_threshold(cog, bot, guild):
 # --------------------------------------------------------------------------- #
 # reset (called from /admin reset)                                           #
 # --------------------------------------------------------------------------- #
+
 
 async def test_reset_restores_default_thresholds_but_leaves_ranks_and_teams_intact(cog, bot, guild):
     await seed_guild(bot.db, guild.id, minimal_mode=True)
@@ -241,9 +264,13 @@ async def test_reset_restores_default_thresholds_but_leaves_ranks_and_teams_inta
     await modal.on_submit(submit_interaction)
 
     assert "reset complete" in reply_text(submit_interaction).lower()
-    perm_rows = await bot.db.execute_fetchall("SELECT * FROM permissions WHERE guild_id = ?", (guild.id,))
+    perm_rows = await bot.db.execute_fetchall(
+        "SELECT * FROM permissions WHERE guild_id = ?", (guild.id,)
+    )
     assert perm_rows == []
-    guild_rows = await bot.db.execute_fetchall("SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,))
+    guild_rows = await bot.db.execute_fetchall(
+        "SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert guild_rows[0]["minimal_mode"] == 0
     rank_rows = await bot.db.execute_fetchall("SELECT * FROM ranks WHERE guild_id = ?", (guild.id,))
     assert len(rank_rows) == 1
@@ -266,15 +293,20 @@ async def test_reset_declines_on_a_mismatched_name_and_changes_nothing(cog, bot,
     await modal.on_submit(submit_interaction)
 
     assert "cancelled" in reply_text(submit_interaction).lower()
-    perm_rows = await bot.db.execute_fetchall("SELECT * FROM permissions WHERE guild_id = ?", (guild.id,))
+    perm_rows = await bot.db.execute_fetchall(
+        "SELECT * FROM permissions WHERE guild_id = ?", (guild.id,)
+    )
     assert len(perm_rows) == 1
-    guild_rows = await bot.db.execute_fetchall("SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,))
+    guild_rows = await bot.db.execute_fetchall(
+        "SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert guild_rows[0]["minimal_mode"] == 1
 
 
 # --------------------------------------------------------------------------- #
 # /config panel                                                               #
 # --------------------------------------------------------------------------- #
+
 
 async def test_panel_feature_select_toggles_features_live_and_rerenders(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -284,8 +316,15 @@ async def test_panel_feature_select_toggles_features_live_and_rerenders(cog, bot
     click = make_interaction(bot, guild=guild, user=admin, message=message)
     await ConfigPanelView.feature_select(view, click, SimpleNamespace(values=["teams", "map"]))
 
-    rows = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
-    assert json.loads(rows[0]["features"]) == {"teams": True, "events": False, "map": True, "serverlink": False}
+    rows = await bot.db.execute_fetchall(
+        "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
+    assert json.loads(rows[0]["features"]) == {
+        "teams": True,
+        "events": False,
+        "map": True,
+        "serverlink": False,
+    }
     assert message.embed is not None
     assert "teams: on" in message.embed.description.lower()
 
@@ -298,12 +337,16 @@ async def test_panel_audit_select_sets_channel_and_clear_button_removes_it(cog, 
 
     set_click = make_interaction(bot, guild=guild, user=admin, message=message)
     await ConfigPanelView.audit_select(view, set_click, SimpleNamespace(values=[channel]))
-    rows = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows[0]["audit_channel"] == channel.id
 
     clear_click = make_interaction(bot, guild=guild, user=admin, message=message)
     await ConfigPanelView.clear_audit_channel(view, clear_click, None)
-    rows2 = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows2 = await bot.db.execute_fetchall(
+        "SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows2[0]["audit_channel"] is None
 
 
@@ -315,7 +358,9 @@ async def test_panel_minimal_toggle_flips_minimal_mode_and_relabels_the_button(c
     click = make_interaction(bot, guild=guild, user=admin, message=message)
     await ConfigPanelView.minimal_toggle(view, click, None)
 
-    rows = await bot.db.execute_fetchall("SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows[0]["minimal_mode"] == 1
     assert view.minimal_toggle.label == "Minimal mode: ON"
 
@@ -336,7 +381,9 @@ async def test_panel_permission_modal_declines_bad_key_then_saves_a_valid_one(co
     bad_interaction = make_interaction(bot, guild=guild, user=admin, message=message)
     await modal.on_submit(bad_interaction)
     assert "recognised" in reply_text(bad_interaction).lower()
-    rows = await bot.db.execute_fetchall("SELECT * FROM permissions WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM permissions WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == []
 
     modal.permission_key_input._value = "teams.manage"
@@ -344,7 +391,8 @@ async def test_panel_permission_modal_declines_bad_key_then_saves_a_valid_one(co
     good_interaction = make_interaction(bot, guild=guild, user=admin, message=message)
     await modal.on_submit(good_interaction)
     rows2 = await bot.db.execute_fetchall(
-        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?", (guild.id, "teams.manage")
+        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?",
+        (guild.id, "teams.manage"),
     )
     assert len(rows2) == 1
     assert rows2[0]["min_rank"] == 3

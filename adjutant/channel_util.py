@@ -5,13 +5,15 @@ A guild's channel plan may brand names with emoji prefixes like
 ("map", "audit-log", etc.) should go through these helpers so a rename
 in the channel plan doesn't shatter lookups everywhere else.
 """
+
 from __future__ import annotations
 
 import discord
 
 
 def find_text_channel(
-    guild: discord.Guild, base_name: str,
+    guild: discord.Guild,
+    base_name: str,
 ) -> discord.TextChannel | None:
     """Return the text channel whose name equals `base_name` or ends
     with `-{base_name}` (i.e. has an emoji prefix like `🗺️-`). None if

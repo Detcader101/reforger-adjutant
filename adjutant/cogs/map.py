@@ -30,13 +30,16 @@ from .roles import decline_missing_permission, member_has_permission
 log = logging.getLogger(__name__)
 
 _TERRAIN_CHOICES = [
-    app_commands.Choice(name=info.display_name, value=slug) for slug, info in mapping_service.TERRAINS.items()
+    app_commands.Choice(name=info.display_name, value=slug)
+    for slug, info in mapping_service.TERRAINS.items()
 ]
 _DEFAULT_TERRAIN = "everon"
 
 
 async def _load_map(db, guild_id: int, channel_id: int):
-    return await fetchone(db, "SELECT * FROM maps WHERE guild_id = ? AND channel_id = ?", (guild_id, channel_id))
+    return await fetchone(
+        db, "SELECT * FROM maps WHERE guild_id = ? AND channel_id = ?", (guild_id, channel_id)
+    )
 
 
 async def _load_markers(db, map_id: int) -> list[mapping_service.Marker]:
@@ -45,7 +48,9 @@ async def _load_markers(db, map_id: int) -> list[mapping_service.Marker]:
     )
     # DB column `y` holds the same value this service calls `z` (north axis) —
     # see services/mapping.py's module docstring for the coordinate convention.
-    return [mapping_service.Marker(kind=r["kind"], label=r["label"], x=r["x"], z=r["y"]) for r in rows]
+    return [
+        mapping_service.Marker(kind=r["kind"], label=r["label"], x=r["x"], z=r["y"]) for r in rows
+    ]
 
 
 async def _render_bytes(db, map_row) -> bytes:
@@ -59,14 +64,17 @@ class MapMarkModal(discord.ui.Modal, title="Place a Marker"):
     submission is its own interaction."""
 
     kind_input: discord.ui.TextInput = discord.ui.TextInput(
-        label=f"Kind ({', '.join(mapping_service.MARKER_KINDS)})", placeholder=mapping_service.MARKER_KINDS[0]
+        label=f"Kind ({', '.join(mapping_service.MARKER_KINDS)})",
+        placeholder=mapping_service.MARKER_KINDS[0],
     )
-    label_input: discord.ui.TextInput = discord.ui.TextInput(label="Short label", placeholder="Hilltop OP")
+    label_input: discord.ui.TextInput = discord.ui.TextInput(
+        label="Short label", placeholder="Hilltop OP"
+    )
     grid_input: discord.ui.TextInput = discord.ui.TextInput(
         label="Grid reference", placeholder="023 087 (4/6/8/10 digits)"
     )
 
-    def __init__(self, cog: "MapCog", channel_id: int):
+    def __init__(self, cog: MapCog, channel_id: int):
         super().__init__()
         self.cog = cog
         self.channel_id = channel_id
@@ -83,11 +91,19 @@ class MapMarkModal(discord.ui.Modal, title="Place a Marker"):
         kind = self.kind_input.value.strip().lower()
         if kind not in mapping_service.MARKER_KINDS:
             await interaction.response.send_message(
-                voice.decline(f"`{kind}` isn't a marker kind I know. Try one of: {', '.join(mapping_service.MARKER_KINDS)}."),
+                voice.decline(
+                    f"`{kind}` isn't a marker kind I know. Try one of: {', '.join(mapping_service.MARKER_KINDS)}."
+                ),
                 ephemeral=True,
             )
             return
-        await self.cog._do_mark(interaction, self.channel_id, kind, self.label_input.value.strip(), self.grid_input.value.strip())
+        await self.cog._do_mark(
+            interaction,
+            self.channel_id,
+            kind,
+            self.label_input.value.strip(),
+            self.grid_input.value.strip(),
+        )
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
         await view_util.handle_app_command_error(interaction, error, log)
@@ -98,7 +114,7 @@ class MapClearModal(discord.ui.Modal, title="Clear Marker(s)"):
         label="Marker id — leave blank to clear every marker", required=False
     )
 
-    def __init__(self, cog: "MapCog", channel_id: int):
+    def __init__(self, cog: MapCog, channel_id: int):
         super().__init__()
         self.cog = cog
         self.channel_id = channel_id
@@ -118,7 +134,9 @@ class MapClearModal(discord.ui.Modal, title="Clear Marker(s)"):
             try:
                 marker_id = int(raw)
             except ValueError:
-                await interaction.response.send_message(voice.decline(f"`{raw}` isn't a whole number."), ephemeral=True)
+                await interaction.response.send_message(
+                    voice.decline(f"`{raw}` isn't a whole number."), ephemeral=True
+                )
                 return
         await self.cog._do_clear(interaction, self.channel_id, marker_id)
 
@@ -131,7 +149,7 @@ class MapPanelView(view_util.ErrorHandledView):
     remember a subcommand's argument order; Clear does the same for marker
     removal. Both buttons re-check map.edit before even opening their modal."""
 
-    def __init__(self, cog: "MapCog", channel_id: int, invoker_id: int, timeout: float = 300.0):
+    def __init__(self, cog: MapCog, channel_id: int, invoker_id: int, timeout: float = 300.0):
         super().__init__(timeout=timeout)
         self.cog = cog
         self.channel_id = channel_id
@@ -156,7 +174,9 @@ class MapPanelView(view_util.ErrorHandledView):
                 pass
 
     @discord.ui.button(label="Mark…", style=discord.ButtonStyle.primary)
-    async def mark_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def mark_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         actor = interaction.user
         if not isinstance(actor, discord.Member) or interaction.guild is None:
             return
@@ -166,7 +186,9 @@ class MapPanelView(view_util.ErrorHandledView):
         await interaction.response.send_modal(MapMarkModal(self.cog, self.channel_id))
 
     @discord.ui.button(label="Clear…", style=discord.ButtonStyle.secondary)
-    async def clear_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def clear_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         actor = interaction.user
         if not isinstance(actor, discord.Member) or interaction.guild is None:
             return
@@ -182,7 +204,9 @@ class MapCog(commands.Cog, name="MapCog"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _refresh_message(self, channel: discord.abc.Messageable, map_row, png_bytes: bytes) -> None:
+    async def _refresh_message(
+        self, channel: discord.abc.Messageable, map_row, png_bytes: bytes
+    ) -> None:
         """Edit the map's existing message in place; post + record a fresh one
         if there's no message yet, or the old one is gone."""
         assert self.bot.db is not None
@@ -203,13 +227,19 @@ class MapCog(commands.Cog, name="MapCog"):
                 pass  # fall through and post a replacement
 
         new_message = await channel.send(file=file)
-        await self.bot.db.execute("UPDATE maps SET message_id = ? WHERE id = ?", (new_message.id, map_row["id"]))
+        await self.bot.db.execute(
+            "UPDATE maps SET message_id = ? WHERE id = ?", (new_message.id, map_row["id"])
+        )
         await self.bot.db.commit()
 
     @app_commands.command(name="map", description="Post or refresh this channel's map.")
-    @app_commands.describe(terrain="Terrain to use — only matters the first time this channel gets a map")
+    @app_commands.describe(
+        terrain="Terrain to use — only matters the first time this channel gets a map"
+    )
     @app_commands.choices(terrain=_TERRAIN_CHOICES)
-    async def map_command(self, interaction: discord.Interaction, terrain: app_commands.Choice[str] | None = None) -> None:
+    async def map_command(
+        self, interaction: discord.Interaction, terrain: app_commands.Choice[str] | None = None
+    ) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
         db = self.bot.db
@@ -230,7 +260,9 @@ class MapCog(commands.Cog, name="MapCog"):
         try:
             mapping_service.resolve_terrain(slug)
         except mapping_service.UnknownTerrainError:
-            await interaction.response.send_message(voice.decline(f"Unknown terrain `{slug}`."), ephemeral=True)
+            await interaction.response.send_message(
+                voice.decline(f"Unknown terrain `{slug}`."), ephemeral=True
+            )
             return
 
         await interaction.response.defer()
@@ -243,10 +275,14 @@ class MapCog(commands.Cog, name="MapCog"):
         )
         await db.commit()
         view = MapPanelView(self, channel_id, interaction.user.id)
-        await interaction.followup.send(f"Map's up — **{mapping_service.TERRAINS[slug].display_name}**.", view=view)
+        await interaction.followup.send(
+            f"Map's up — **{mapping_service.TERRAINS[slug].display_name}**.", view=view
+        )
         view.message = await interaction.original_response()
 
-    async def _do_mark(self, interaction: discord.Interaction, channel_id: int, kind: str, label: str, grid: str) -> None:
+    async def _do_mark(
+        self, interaction: discord.Interaction, channel_id: int, kind: str, label: str, grid: str
+    ) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
         db = self.bot.db
@@ -263,7 +299,9 @@ class MapCog(commands.Cog, name="MapCog"):
             x, z = mapping_service.parse_grid(grid)
         except mapping_service.InvalidGridReferenceError:
             await interaction.response.send_message(
-                voice.decline(f"`{grid}` isn't a grid reference I recognise — try something like `023 087`."),
+                voice.decline(
+                    f"`{grid}` isn't a grid reference I recognise — try something like `023 087`."
+                ),
                 ephemeral=True,
             )
             return
@@ -281,13 +319,18 @@ class MapCog(commands.Cog, name="MapCog"):
             await self._refresh_message(channel, row, data)
 
         await note_audit(
-            self.bot, guild.id, f"Map marker placed by <@{interaction.user.id}>: {kind} \"{label}\" @ {grid}"
+            self.bot,
+            guild.id,
+            f'Map marker placed by <@{interaction.user.id}>: {kind} "{label}" @ {grid}',
         )
         await interaction.followup.send(
-            f"Marked (#{marker_id}) — **{label}** at `{mapping_service.format_grid(x, z)}`.", ephemeral=True
+            f"Marked (#{marker_id}) — **{label}** at `{mapping_service.format_grid(x, z)}`.",
+            ephemeral=True,
         )
 
-    async def _do_clear(self, interaction: discord.Interaction, channel_id: int, marker_id: int | None = None) -> None:
+    async def _do_clear(
+        self, interaction: discord.Interaction, channel_id: int, marker_id: int | None = None
+    ) -> None:
         guild = interaction.guild
         assert guild is not None and self.bot.db is not None
         db = self.bot.db
@@ -295,7 +338,9 @@ class MapCog(commands.Cog, name="MapCog"):
 
         row = await _load_map(db, guild.id, channel_id)
         if row is None:
-            await interaction.response.send_message(voice.decline("No map here yet."), ephemeral=True)
+            await interaction.response.send_message(
+                voice.decline("No map here yet."), ephemeral=True
+            )
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -304,7 +349,9 @@ class MapCog(commands.Cog, name="MapCog"):
                 db, "SELECT id FROM map_markers WHERE id = ? AND map_id = ?", (marker_id, row["id"])
             )
             if marker is None:
-                await interaction.followup.send(voice.decline(f"No marker #{marker_id} on this map."), ephemeral=True)
+                await interaction.followup.send(
+                    voice.decline(f"No marker #{marker_id} on this map."), ephemeral=True
+                )
                 return
             await db.execute("DELETE FROM map_markers WHERE id = ?", (marker_id,))
             summary = f"Cleared marker #{marker_id}."

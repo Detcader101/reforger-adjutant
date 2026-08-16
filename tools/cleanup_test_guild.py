@@ -15,9 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import discord  # noqa: E402
+import discord
 
-from adjutant.config import Config  # noqa: E402
+from adjutant.config import Config
 
 # Names created by adjutant/selftest.py and ad-hoc diagnostics. Anything not
 # matching one of these is left strictly alone.
@@ -52,18 +52,21 @@ async def main() -> int:
                     print("  nothing to clean")
                     continue
                 for obj in targets:
-                    print(f"  {'deleting' if delete else 'would delete'}: {type(obj).__name__} {obj.name!r}")
+                    print(
+                        f"  {'deleting' if delete else 'would delete'}: {type(obj).__name__} {obj.name!r}"
+                    )
                     if delete:
                         try:
                             await obj.delete(reason="Adjutant: self-test cleanup")
-                        except discord.Forbidden as exc:
+                        except discord.Forbidden:
                             # A leftover channel may deny the bot view_channel,
                             # which makes it undeletable (50001 Missing Access).
                             # Grant ourselves access first, then retry.
                             if isinstance(obj, discord.abc.GuildChannel):
                                 try:
                                     await obj.set_permissions(
-                                        guild.me, view_channel=True,
+                                        guild.me,
+                                        view_channel=True,
                                         reason="Adjutant: regaining access to clean up",
                                     )
                                     await obj.delete(reason="Adjutant: self-test cleanup")

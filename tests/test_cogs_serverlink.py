@@ -5,12 +5,14 @@ cog: /server's bare status reply, the Players/Link/Unlink/Kick buttons,
 and the secret-handling flows (Link -> RCON password modal, feed token
 regeneration) — none of which had cog-layer coverage before this pass.
 """
+
 from __future__ import annotations
 
 import sys
 import types
 
 import pytest
+from fakes import FakeGuild, make_interaction, make_member, reply_ephemeral, reply_text, seed_guild
 
 from adjutant.cogs.serverlink import (
     KickModal,
@@ -21,7 +23,6 @@ from adjutant.cogs.serverlink import (
     ServerPanelView,
 )
 from adjutant.serverlink.rcon_link import RconLink
-from fakes import FakeGuild, make_interaction, make_member, reply_ephemeral, reply_text, seed_guild
 
 
 class _FakeConnectCtx:
@@ -78,6 +79,7 @@ def _admin(guild):
 # bare /server                                                                #
 # --------------------------------------------------------------------------- #
 
+
 async def test_server_shows_not_reachable_when_nothing_is_linked(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     member = make_member(guild, display_name="Anyone")
@@ -95,6 +97,7 @@ async def test_server_shows_not_reachable_when_nothing_is_linked(cog, bot, guild
 # Players button                                                              #
 # --------------------------------------------------------------------------- #
 
+
 async def test_players_button_declines_when_no_server_is_linked(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     member = make_member(guild, display_name="Anyone")
@@ -111,6 +114,7 @@ async def test_players_button_declines_when_no_server_is_linked(cog, bot, guild)
 # Link button — non-secret backends apply directly, RCON goes via the modal   #
 # --------------------------------------------------------------------------- #
 
+
 async def test_link_button_declines_a_non_admin_before_opening_the_modal(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     grunt = make_member(guild, display_name="Grunt")
@@ -121,7 +125,9 @@ async def test_link_button_declines_a_non_admin_before_opening_the_modal(cog, bo
 
     assert click.response.modal is None
     assert reply_ephemeral(click) is True
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
 
 
@@ -136,7 +142,9 @@ async def test_link_backend_modal_applies_an_a2s_link_directly(cog, bot, guild):
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="server")
     await modal.on_submit(interaction)
 
-    rows = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert len(rows) == 1
     assert rows[0]["backend"] == "a2s"
     assert rows[0]["host"] == "203.0.113.5"
@@ -155,7 +163,9 @@ async def test_link_backend_modal_rejects_an_unknown_backend(cog, bot, guild):
     await modal.on_submit(interaction)
 
     assert "isn't a backend" in reply_text(interaction).lower()
-    rows = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == []
 
 
@@ -174,11 +184,15 @@ async def test_link_backend_modal_rechecks_admin_at_submit_time(cog, bot, guild)
     await modal.on_submit(interaction)
 
     assert reply_ephemeral(interaction) is True
-    rows = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == []
 
 
-async def test_link_backend_modal_rcon_opens_the_private_secret_entry_flow(cog, bot, guild, fake_berconpy):
+async def test_link_backend_modal_rcon_opens_the_private_secret_entry_flow(
+    cog, bot, guild, fake_berconpy
+):
     """The RCON password must never travel as modal text alongside
     host/port — it goes through a second, dedicated modal."""
     await seed_guild(bot.db, guild.id)
@@ -193,7 +207,9 @@ async def test_link_backend_modal_rcon_opens_the_private_secret_entry_flow(cog, 
 
     view = interaction.response.messages[-1]["view"]
     assert isinstance(view, SecretEntryView)
-    rows = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == [], "nothing should be saved until the password modal is submitted"
 
     click = make_interaction(bot, guild=guild, user=admin, message=interaction.response.message)
@@ -205,7 +221,9 @@ async def test_link_backend_modal_rcon_opens_the_private_secret_entry_flow(cog, 
     submit_interaction = make_interaction(bot, guild=guild, user=admin, command_name="server")
     await secret_modal.on_submit(submit_interaction)
 
-    rows2 = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows2 = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert len(rows2) == 1
     assert rows2[0]["backend"] == "rcon"
     assert rows2[0]["secret"] == "hunter2"
@@ -228,13 +246,16 @@ async def test_link_backend_modal_is_rate_limited_like_the_old_slash_command_was
         await modal.on_submit(last_interaction)
 
     assert "often" in reply_text(last_interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "rate_limit" and i["detail"] == "server.link" for i in incidents)
 
 
 # --------------------------------------------------------------------------- #
 # Unlink button                                                               #
 # --------------------------------------------------------------------------- #
+
 
 async def test_unlink_button_sets_the_backend_back_to_null(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -249,7 +270,9 @@ async def test_unlink_button_sets_the_backend_back_to_null(cog, bot, guild):
     click = make_interaction(bot, guild=guild, user=admin, command_name="server")
     await ServerPanelView.unlink_button(view, click, None)
 
-    rows = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert rows[0]["backend"] == "null"
 
 
@@ -262,13 +285,16 @@ async def test_unlink_button_declines_a_non_admin(cog, bot, guild):
     await ServerPanelView.unlink_button(view, click, None)
 
     assert reply_ephemeral(click) is True
-    rows = await bot.db.execute_fetchall("SELECT * FROM server_links WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT * FROM server_links WHERE guild_id = ?", (guild.id,)
+    )
     assert rows == []
 
 
 # --------------------------------------------------------------------------- #
 # Kick button                                                                 #
 # --------------------------------------------------------------------------- #
+
 
 async def test_kick_button_declines_a_non_admin_before_opening_the_modal(cog, bot, guild):
     await seed_guild(bot.db, guild.id)

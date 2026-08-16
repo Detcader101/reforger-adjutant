@@ -68,12 +68,16 @@ class HubView(view_util.ErrorHandledView):
 
     async def _missing_cog(self, interaction: discord.Interaction, feature: str) -> None:
         await interaction.response.send_message(
-            voice.broken(f"{feature} isn't loaded right now.", "Try again shortly, or flag an admin."),
+            voice.broken(
+                f"{feature} isn't loaded right now.", "Try again shortly, or flag an admin."
+            ),
             ephemeral=True,
         )
 
     @discord.ui.button(label="Config", style=discord.ButtonStyle.primary, row=0)
-    async def config_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def config_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         if not isinstance(member, discord.Member) or not is_guild_admin(member):
             await decline_admin_only(interaction, detail="adjutant hub: config")
@@ -85,7 +89,9 @@ class HubView(view_util.ErrorHandledView):
         await cog.panel(interaction)
 
     @discord.ui.button(label="Server Link", style=discord.ButtonStyle.primary, row=0)
-    async def server_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def server_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         cog = self.bot.get_cog("ServerLinkCog")
         if cog is None:
             await self._missing_cog(interaction, "Server link")
@@ -93,7 +99,9 @@ class HubView(view_util.ErrorHandledView):
         await type(cog).server.callback(cog, interaction)
 
     @discord.ui.button(label="Incidents", style=discord.ButtonStyle.secondary, row=0)
-    async def incidents_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def incidents_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         cog = self.bot.get_cog("AdminCog")
         if cog is None:
             await self._missing_cog(interaction, "Incidents")
@@ -101,7 +109,9 @@ class HubView(view_util.ErrorHandledView):
         await type(cog).incidents.callback(cog, interaction)
 
     @discord.ui.button(label="Setup", style=discord.ButtonStyle.secondary, row=1)
-    async def setup_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def setup_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         guild = interaction.guild
         if guild is None or not isinstance(member, discord.Member) or not is_guild_admin(member):
@@ -124,7 +134,9 @@ class HubView(view_util.ErrorHandledView):
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Ranks", style=discord.ButtonStyle.secondary, row=1)
-    async def ranks_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def ranks_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         guild = interaction.guild
         if guild is None or not isinstance(member, discord.Member) or not is_guild_admin(member):
@@ -139,7 +151,9 @@ class HubView(view_util.ErrorHandledView):
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Diagnostics", style=discord.ButtonStyle.secondary, row=1)
-    async def diagnostics_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def diagnostics_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         guild = interaction.guild
         if guild is None or not isinstance(member, discord.Member) or not is_guild_admin(member):
@@ -167,7 +181,9 @@ class HubCog(commands.Cog, name="HubCog"):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.message = await interaction.original_response()
 
-    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return
         await view_util.handle_app_command_error(interaction, error, log)

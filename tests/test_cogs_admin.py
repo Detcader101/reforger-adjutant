@@ -8,6 +8,7 @@ test_cogs_events.py since they need those cogs' fixtures), the incidents
 ledger, and the shared error-handler path every cog's cog_app_command_error
 funnels through.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,16 +17,6 @@ import discord
 import pytest
 from discord import app_commands
 from discord.app_commands import CheckFailure
-
-from adjutant.cogs.admin import AdminCog, log_incident, rate_limited
-from adjutant.cogs.config import ConfigCog
-from adjutant.cogs.setup import (
-    DEFAULT_LADDER,
-    TeardownConfirmModal,
-    TeardownConfirmView,
-    _create_default_ladder,
-)
-from adjutant.services import templates as templates_service
 from fakes import (
     FakeGuild,
     forbidden,
@@ -37,6 +28,16 @@ from fakes import (
     reply_text,
     seed_guild,
 )
+
+from adjutant.cogs.admin import AdminCog, log_incident, rate_limited
+from adjutant.cogs.config import ConfigCog
+from adjutant.cogs.setup import (
+    DEFAULT_LADDER,
+    TeardownConfirmModal,
+    TeardownConfirmView,
+    _create_default_ladder,
+)
+from adjutant.services import templates as templates_service
 
 
 @pytest.fixture
@@ -67,8 +68,10 @@ def _rate_limit_predicate():
     `.checks` list (see discord.app_commands.check's source). Pulling it out
     that way tests the rate limiter itself, independent of any one command.
     """
+
     async def _dummy(interaction):
         return None
+
     decorated = rate_limited()(_dummy)
     return decorated.__discord_app_commands_checks__[0]
 
@@ -76,6 +79,7 @@ def _rate_limit_predicate():
 # --------------------------------------------------------------------------- #
 # rate limiter                                                                #
 # --------------------------------------------------------------------------- #
+
 
 async def test_rate_limiter_allows_a_burst_then_declines_and_logs_an_incident(bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -96,7 +100,9 @@ async def test_rate_limiter_allows_a_burst_then_declines_and_logs_an_incident(bo
     denied_interaction = interactions[-1]
     assert reply_ephemeral(denied_interaction) is True
     assert "often" in reply_text(denied_interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "rate_limit" and i["detail"] == command_name for i in incidents)
 
 
@@ -108,15 +114,25 @@ async def test_rate_limiter_keeps_independent_buckets_per_command_name(bot, guil
     command_b = f"admin bucket-b {next_id()}"
 
     for _ in range(5):
-        assert await predicate(make_interaction(bot, guild=guild, user=member, command_name=command_a)) is True
+        assert (
+            await predicate(make_interaction(bot, guild=guild, user=member, command_name=command_a))
+            is True
+        )
     # command_a's bucket is now empty, but command_b's is untouched
-    assert await predicate(make_interaction(bot, guild=guild, user=member, command_name=command_a)) is False
-    assert await predicate(make_interaction(bot, guild=guild, user=member, command_name=command_b)) is True
+    assert (
+        await predicate(make_interaction(bot, guild=guild, user=member, command_name=command_a))
+        is False
+    )
+    assert (
+        await predicate(make_interaction(bot, guild=guild, user=member, command_name=command_b))
+        is True
+    )
 
 
 # --------------------------------------------------------------------------- #
 # /admin incidents                                                            #
 # --------------------------------------------------------------------------- #
+
 
 async def test_incidents_returns_logged_incidents_ephemerally(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -152,8 +168,12 @@ async def test_incidents_is_refused_for_a_non_admin(cog, bot, guild):
 
     assert reply_ephemeral(interaction) is True
     assert "admin" in reply_text(interaction).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
-    assert any(i["kind"] == "permission_denied" and i["detail"] == "admin incidents" for i in incidents)
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
+    assert any(
+        i["kind"] == "permission_denied" and i["detail"] == "admin incidents" for i in incidents
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -162,6 +182,7 @@ async def test_incidents_is_refused_for_a_non_admin(cog, bot, guild):
 # team-disband, rank-revoke, event-cancel and event-teardown are covered in
 # test_cogs_teams.py / test_cogs_roles.py / test_cogs_events.py respectively,
 # alongside the panel-button paths they mirror.
+
 
 def _admin(guild):
     return make_member(guild, display_name="Admin", is_admin=True)
@@ -173,22 +194,28 @@ async def test_admin_feature_forwards_to_config_and_requires_admin(cog, config_c
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin feature")
 
     await AdminCog.feature.callback(
-        cog, interaction,
+        cog,
+        interaction,
         feature=app_commands.Choice(name="Teams", value="teams"),
         state=app_commands.Choice(name="on", value="on"),
     )
 
-    rows = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert json.loads(rows[0]["features"]) == {"teams": True}
 
     grunt = make_member(guild, display_name="Grunt")
     denied = make_interaction(bot, guild=guild, user=grunt, command_name="admin feature")
     await AdminCog.feature.callback(
-        cog, denied,
+        cog,
+        denied,
         feature=app_commands.Choice(name="Events", value="events"),
         state=app_commands.Choice(name="on", value="on"),
     )
-    rows2 = await bot.db.execute_fetchall("SELECT features FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows2 = await bot.db.execute_fetchall(
+        "SELECT features FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert json.loads(rows2[0]["features"]) == {"teams": True}  # unchanged
     assert reply_ephemeral(denied) is True
 
@@ -201,7 +228,9 @@ async def test_admin_audit_channel_forwards_to_config(cog, config_cog, bot, guil
 
     await AdminCog.audit_channel.callback(cog, interaction, channel=channel)
 
-    rows = await bot.db.execute_fetchall("SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT audit_channel FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows[0]["audit_channel"] == channel.id
 
 
@@ -210,9 +239,13 @@ async def test_admin_minimal_forwards_to_config(cog, config_cog, bot, guild):
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin minimal")
 
-    await AdminCog.minimal.callback(cog, interaction, state=app_commands.Choice(name="on", value="on"))
+    await AdminCog.minimal.callback(
+        cog, interaction, state=app_commands.Choice(name="on", value="on")
+    )
 
-    rows = await bot.db.execute_fetchall("SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,))
+    rows = await bot.db.execute_fetchall(
+        "SELECT minimal_mode FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert rows[0]["minimal_mode"] == 1
 
 
@@ -231,7 +264,8 @@ async def test_admin_permission_forwards_to_config(cog, config_cog, bot, guild):
     await AdminCog.permission.callback(cog, interaction, key="teams.manage", min_rank=3)
 
     rows = await bot.db.execute_fetchall(
-        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?", (guild.id, "teams.manage")
+        "SELECT * FROM permissions WHERE guild_id = ? AND permission = ?",
+        (guild.id, "teams.manage"),
     )
     assert len(rows) == 1
     assert rows[0]["min_rank"] == 3
@@ -250,7 +284,9 @@ async def test_admin_reset_forwards_to_config(cog, config_cog, bot, guild):
     await AdminCog.reset.callback(cog, interaction)
 
     view = interaction.response.messages[-1]["view"]
-    assert view is not None  # ResetConfirmView — the reset flow itself is exercised in test_cogs_config.py
+    assert (
+        view is not None
+    )  # ResetConfirmView — the reset flow itself is exercised in test_cogs_config.py
 
 
 async def test_admin_config_fallback_reports_clearly_when_config_cog_is_not_loaded(cog, bot, guild):
@@ -261,7 +297,9 @@ async def test_admin_config_fallback_reports_clearly_when_config_cog_is_not_load
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin minimal")
 
-    await AdminCog.minimal.callback(cog, interaction, state=app_commands.Choice(name="on", value="on"))
+    await AdminCog.minimal.callback(
+        cog, interaction, state=app_commands.Choice(name="on", value="on")
+    )
 
     assert reply_ephemeral(interaction) is True
     assert "isn't loaded" in reply_text(interaction).lower()
@@ -270,6 +308,7 @@ async def test_admin_config_fallback_reports_clearly_when_config_cog_is_not_load
 # --------------------------------------------------------------------------- #
 # /admin config-show — the text-only read of the configuration               #
 # --------------------------------------------------------------------------- #
+
 
 async def test_admin_config_show_reports_the_configuration_as_text(cog, bot, guild):
     """The Config button is itself a component, so this is the only way to
@@ -304,6 +343,7 @@ async def test_admin_config_show_is_refused_for_a_non_admin(cog, bot, guild):
 # /admin preflight — folded out of the old /setup check                      #
 # --------------------------------------------------------------------------- #
 
+
 async def test_admin_preflight_reports_missing_permissions(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -331,6 +371,7 @@ async def test_admin_preflight_is_refused_for_a_non_admin(cog, bot, guild):
 # /admin ranks — folded out of the old /setup ranks                          #
 # --------------------------------------------------------------------------- #
 
+
 async def test_admin_ranks_argument_applies_without_opening_a_view(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -357,7 +398,9 @@ async def test_admin_ranks_declines_invalid_input_and_changes_nothing(cog, bot, 
     assert rows == []
 
 
-async def test_admin_ranks_with_no_argument_shows_the_current_ladder_without_a_view(cog, bot, guild):
+async def test_admin_ranks_with_no_argument_shows_the_current_ladder_without_a_view(
+    cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin ranks")
@@ -365,7 +408,9 @@ async def test_admin_ranks_with_no_argument_shows_the_current_ladder_without_a_v
     await AdminCog.ranks.callback(cog, interaction, ranks="")
 
     assert reply_ephemeral(interaction) is True
-    assert interaction.response.messages[-1]["view"] is None  # raw fallback: never opens a component
+    assert (
+        interaction.response.messages[-1]["view"] is None
+    )  # raw fallback: never opens a component
     assert "No ladder configured yet" in reply_text(interaction)
 
 
@@ -385,6 +430,7 @@ async def test_admin_ranks_is_refused_for_a_non_admin(cog, bot, guild):
 # --------------------------------------------------------------------------- #
 # /admin setup-quick — folded out of the old /setup quick                    #
 # --------------------------------------------------------------------------- #
+
 
 async def test_admin_setup_quick_with_a_template_applies_its_ladder_and_channels(cog, bot, guild):
     admin = _admin(guild)
@@ -420,22 +466,30 @@ async def test_admin_setup_quick_rejects_an_unknown_feature(cog, bot, guild):
     assert row == []
 
 
-async def test_admin_setup_quick_running_twice_with_the_same_template_creates_no_duplicates(cog, bot, guild):
+async def test_admin_setup_quick_running_twice_with_the_same_template_creates_no_duplicates(
+    cog, bot, guild
+):
     admin = _admin(guild)
 
     await AdminCog.setup_quick.callback(
-        cog, make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick"), template="milsim"
+        cog,
+        make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick"),
+        template="milsim",
     )
     roles_after_first = sorted(r.name for r in guild.roles)
 
     await AdminCog.setup_quick.callback(
-        cog, make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick"), template="milsim"
+        cog,
+        make_interaction(bot, guild=guild, user=admin, command_name="admin setup-quick"),
+        template="milsim",
     )
 
     assert sorted(r.name for r in guild.roles) == roles_after_first
 
 
-async def test_admin_setup_quick_with_no_template_can_still_create_the_default_ladder(cog, bot, guild):
+async def test_admin_setup_quick_with_no_template_can_still_create_the_default_ladder(
+    cog, bot, guild
+):
     """create_default_ladder is the one /setup-quick capability that isn't a
     direct template/feature passthrough — worth its own case so folding
     /setup quick into /admin doesn't quietly drop it."""
@@ -465,6 +519,7 @@ async def test_admin_setup_quick_is_refused_for_a_non_admin(cog, bot, guild):
 # keep working exactly as before, it's a deliberate safety property         #
 # --------------------------------------------------------------------------- #
 
+
 async def test_admin_teardown_opens_the_confirm_view_for_an_admin(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -490,7 +545,9 @@ async def test_admin_teardown_is_refused_for_a_non_admin(cog, bot, guild):
     assert interaction.response.messages[-1]["view"] is None
 
 
-async def test_admin_teardown_confirm_flow_removes_bot_created_ranks_and_clears_config(cog, bot, guild):
+async def test_admin_teardown_confirm_flow_removes_bot_created_ranks_and_clears_config(
+    cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
     created = await _create_default_ladder(bot, guild)
@@ -513,7 +570,9 @@ async def test_admin_teardown_confirm_flow_removes_bot_created_ranks_and_clears_
     remaining_role_ids = {r.id for r in guild.roles}
     for role in created:
         assert role.id not in remaining_role_ids
-    guild_rows = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    guild_rows = await bot.db.execute_fetchall(
+        "SELECT * FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert guild_rows == []
     rank_rows = await bot.db.execute_fetchall("SELECT * FROM ranks WHERE guild_id = ?", (guild.id,))
     assert rank_rows == []
@@ -532,7 +591,9 @@ async def test_admin_teardown_declines_on_a_mismatched_name_and_changes_nothing(
     remaining_role_ids = {r.id for r in guild.roles}
     for role in created:
         assert role.id in remaining_role_ids
-    guild_rows = await bot.db.execute_fetchall("SELECT * FROM guilds WHERE guild_id = ?", (guild.id,))
+    guild_rows = await bot.db.execute_fetchall(
+        "SELECT * FROM guilds WHERE guild_id = ?", (guild.id,)
+    )
     assert len(guild_rows) == 1
 
 
@@ -540,7 +601,10 @@ async def test_admin_teardown_declines_on_a_mismatched_name_and_changes_nothing(
 # shared error-handler path (cog_app_command_error -> view_util)              #
 # --------------------------------------------------------------------------- #
 
-async def test_error_handler_gives_a_generic_message_without_leaking_exception_text(cog, bot, guild):
+
+async def test_error_handler_gives_a_generic_message_without_leaking_exception_text(
+    cog, bot, guild
+):
     admin = make_member(guild, display_name="Admin", is_admin=True)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin incidents")
     leaky = ValueError("column adjutant_secret_schema_v7 does not exist")

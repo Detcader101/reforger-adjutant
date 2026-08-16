@@ -17,11 +17,13 @@ still protects against burst storms during outages.
 Bot runs as one process per host, so in-process state is enough; no
 redis.
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 T = TypeVar("T")
 

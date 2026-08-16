@@ -70,10 +70,12 @@ class RconSecretModal(discord.ui.Modal, title="RCON Admin Password"):
     aren't visible in the channel the way a slash-command argument is."""
 
     secret_input: discord.ui.TextInput = discord.ui.TextInput(
-        label="RCON password", placeholder="From this server's config.json rcon block", max_length=200,
+        label="RCON password",
+        placeholder="From this server's config.json rcon block",
+        max_length=200,
     )
 
-    def __init__(self, cog: "ServerLinkCog", host: str, port: int | None):
+    def __init__(self, cog: ServerLinkCog, host: str, port: int | None):
         super().__init__()
         self.cog = cog
         self.host = host
@@ -97,7 +99,14 @@ class SecretEntryView(view_util.ErrorHandledView):
     so the RCON password is entered privately rather than typed as a
     visible slash-command argument."""
 
-    def __init__(self, cog: "ServerLinkCog", host: str, port: int | None, invoker_id: int, timeout: float = 120.0):
+    def __init__(
+        self,
+        cog: ServerLinkCog,
+        host: str,
+        port: int | None,
+        invoker_id: int,
+        timeout: float = 120.0,
+    ):
         super().__init__(timeout=timeout)
         self.cog = cog
         self.host = host
@@ -113,12 +122,16 @@ class SecretEntryView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Timed out waiting for the password. Nothing changed.", view=None)
+                await self.message.edit(
+                    content="Timed out waiting for the password. Nothing changed.", view=None
+                )
             except discord.HTTPException:
                 pass
 
     @discord.ui.button(label="Enter RCON password", style=discord.ButtonStyle.primary)
-    async def enter_secret(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def enter_secret(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         self.stop()
         await interaction.response.send_modal(RconSecretModal(self.cog, self.host, self.port))
 
@@ -140,7 +153,7 @@ class LinkBackendModal(discord.ui.Modal, title="Link Game Server"):
         label="Port (optional — defaults per tier)", required=False
     )
 
-    def __init__(self, cog: "ServerLinkCog"):
+    def __init__(self, cog: ServerLinkCog):
         super().__init__()
         self.cog = cog
 
@@ -152,7 +165,9 @@ class LinkBackendModal(discord.ui.Modal, title="Link Game Server"):
         backend_value = self.backend_input.value.strip().lower()
         if backend_value not in {c.value for c in _BACKEND_CHOICES}:
             await interaction.response.send_message(
-                voice.decline(f"`{backend_value}` isn't a backend I know — try null, a2s, rcon, or feed."),
+                voice.decline(
+                    f"`{backend_value}` isn't a backend I know — try null, a2s, rcon, or feed."
+                ),
                 ephemeral=True,
             )
             return
@@ -163,7 +178,9 @@ class LinkBackendModal(discord.ui.Modal, title="Link Game Server"):
             try:
                 port = int(port_raw)
             except ValueError:
-                await interaction.response.send_message(voice.decline(f"`{port_raw}` isn't a whole number."), ephemeral=True)
+                await interaction.response.send_message(
+                    voice.decline(f"`{port_raw}` isn't a whole number."), ephemeral=True
+                )
                 return
         if not await check_rate_limit(interaction, "server.link"):
             return
@@ -174,10 +191,14 @@ class LinkBackendModal(discord.ui.Modal, title="Link Game Server"):
 
 
 class KickModal(discord.ui.Modal, title="Kick Player"):
-    player_id_input: discord.ui.TextInput = discord.ui.TextInput(label="Player id — see the Players button")
-    reason_input: discord.ui.TextInput = discord.ui.TextInput(label="Reason (optional)", required=False)
+    player_id_input: discord.ui.TextInput = discord.ui.TextInput(
+        label="Player id — see the Players button"
+    )
+    reason_input: discord.ui.TextInput = discord.ui.TextInput(
+        label="Reason (optional)", required=False
+    )
 
-    def __init__(self, cog: "ServerLinkCog"):
+    def __init__(self, cog: ServerLinkCog):
         super().__init__()
         self.cog = cog
 
@@ -188,7 +209,9 @@ class KickModal(discord.ui.Modal, title="Kick Player"):
             return
         if not await check_rate_limit(interaction, "server.kick"):
             return
-        await self.cog._do_kick(interaction, self.player_id_input.value.strip(), self.reason_input.value.strip() or None)
+        await self.cog._do_kick(
+            interaction, self.player_id_input.value.strip(), self.reason_input.value.strip() or None
+        )
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
         await view_util.handle_app_command_error(interaction, error, log)
@@ -200,7 +223,7 @@ class ServerPanelView(view_util.ErrorHandledView):
     admin at click time before doing anything, matching the original
     require_admin()-gated commands they replace."""
 
-    def __init__(self, cog: "ServerLinkCog", timeout: float = 300.0):
+    def __init__(self, cog: ServerLinkCog, timeout: float = 300.0):
         super().__init__(timeout=timeout)
         self.cog = cog
         self.message: discord.Message | None = None
@@ -215,13 +238,17 @@ class ServerPanelView(view_util.ErrorHandledView):
                 pass
 
     @discord.ui.button(label="Players", style=discord.ButtonStyle.primary)
-    async def players_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def players_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         if not await check_rate_limit(interaction, "server.players"):
             return
         await self.cog._do_players(interaction)
 
     @discord.ui.button(label="Link…", style=discord.ButtonStyle.secondary)
-    async def link_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def link_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         if not isinstance(member, discord.Member) or not is_guild_admin(member):
             await decline_admin_only(interaction, detail="server link")
@@ -229,7 +256,9 @@ class ServerPanelView(view_util.ErrorHandledView):
         await interaction.response.send_modal(LinkBackendModal(self.cog))
 
     @discord.ui.button(label="Unlink", style=discord.ButtonStyle.secondary)
-    async def unlink_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def unlink_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         if not isinstance(member, discord.Member) or not is_guild_admin(member):
             await decline_admin_only(interaction, detail="server unlink")
@@ -239,7 +268,9 @@ class ServerPanelView(view_util.ErrorHandledView):
         await self.cog._apply_link(interaction, "null", None, None, None)
 
     @discord.ui.button(label="Kick…", style=discord.ButtonStyle.danger)
-    async def kick_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def kick_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         member = interaction.user
         if not isinstance(member, discord.Member) or not is_guild_admin(member):
             await decline_admin_only(interaction, detail="server kick")
@@ -265,7 +296,11 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
             try:
                 await link.open()
             except Exception:
-                log.warning("Failed to open %s link for guild %s at startup", row["backend"], row["guild_id"])
+                log.warning(
+                    "Failed to open %s link for guild %s at startup",
+                    row["backend"],
+                    row["guild_id"],
+                )
         self.poll_status.start()
         await self._sync_feed_listener()
 
@@ -412,7 +447,9 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
 
         await self._sync_feed_listener()
 
-        await note_audit(self.bot, guild_id, f"Server link set to `{backend}` by <@{interaction.user.id}>.")
+        await note_audit(
+            self.bot, guild_id, f"Server link set to `{backend}` by <@{interaction.user.id}>."
+        )
         label = "back to Discord-only" if backend == "null" else f"linked on the **{backend}** tier"
         message = f"Done. This server is now {label}."
         if reveal_secret:
@@ -479,14 +516,23 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
                 result = await link.status()
             except Exception:
                 result = ServerStatus(
-                    name="", scenario="", players=0, max_players=0,
-                    reachable=False, detail="Couldn't check status just now.",
+                    name="",
+                    scenario="",
+                    players=0,
+                    max_players=0,
+                    reachable=False,
+                    detail="Couldn't check status just now.",
                 )
 
         view = ServerPanelView(self)
         if not result.reachable:
             await interaction.response.send_message(
-                embed=voice.embed("Server Status", result.detail or "Not reachable.", colour=voice.COLOUR_INFO, minimal=minimal),
+                embed=voice.embed(
+                    "Server Status",
+                    result.detail or "Not reachable.",
+                    colour=voice.COLOUR_INFO,
+                    minimal=minimal,
+                ),
                 view=view,
             )
             view.message = await interaction.original_response()
@@ -495,10 +541,16 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
         lines = [f"**{result.name or 'Unnamed server'}**"]
         if result.scenario:
             lines.append(f"Scenario: {result.scenario}")
-        lines.append(f"Players: {result.players}/{result.max_players}" if result.max_players else f"Players: {result.players}")
+        lines.append(
+            f"Players: {result.players}/{result.max_players}"
+            if result.max_players
+            else f"Players: {result.players}"
+        )
         if result.detail:
             lines.append(result.detail)
-        await interaction.response.send_message(embed=voice.embed("Server Status", "\n".join(lines), minimal=minimal), view=view)
+        await interaction.response.send_message(
+            embed=voice.embed("Server Status", "\n".join(lines), minimal=minimal), view=view
+        )
         view.message = await interaction.original_response()
 
     async def _do_players(self, interaction: discord.Interaction) -> None:
@@ -508,9 +560,15 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
         minimal = await self._minimal(guild_id)
 
         if not link.can_players:
-            reason = "no server is linked" if isinstance(link, NullLink) else "this tier doesn't expose a player list"
+            reason = (
+                "no server is linked"
+                if isinstance(link, NullLink)
+                else "this tier doesn't expose a player list"
+            )
             await interaction.response.send_message(
-                voice.decline(f"Can't list players — {reason}. An RCON or feed link is needed for that."),
+                voice.decline(
+                    f"Can't list players — {reason}. An RCON or feed link is needed for that."
+                ),
                 ephemeral=True,
             )
             return
@@ -522,7 +580,10 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
             return
         except Exception:
             await interaction.response.send_message(
-                voice.broken("Couldn't fetch the player list.", "The link may have dropped — try again shortly."),
+                voice.broken(
+                    "Couldn't fetch the player list.",
+                    "The link may have dropped — try again shortly.",
+                ),
                 ephemeral=True,
             )
             return
@@ -537,15 +598,23 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
             embed=voice.embed(f"Players ({len(roster)})", lines, minimal=minimal), ephemeral=True
         )
 
-    async def _do_kick(self, interaction: discord.Interaction, player_id: str, reason: str | None = None) -> None:
+    async def _do_kick(
+        self, interaction: discord.Interaction, player_id: str, reason: str | None = None
+    ) -> None:
         assert interaction.guild is not None
         guild_id = interaction.guild.id
         link = self._get_link(guild_id)
 
         if not link.can_admin:
-            reason_txt = "no server is linked" if isinstance(link, NullLink) else "this tier doesn't allow admin actions"
+            reason_txt = (
+                "no server is linked"
+                if isinstance(link, NullLink)
+                else "this tier doesn't allow admin actions"
+            )
             await interaction.response.send_message(
-                voice.decline(f"Can't kick — {reason_txt}. That needs an RCON link with admin permission."),
+                voice.decline(
+                    f"Can't kick — {reason_txt}. That needs an RCON link with admin permission."
+                ),
                 ephemeral=True,
             )
             return
@@ -557,7 +626,8 @@ class ServerLinkCog(commands.Cog, name="ServerLinkCog"):
             return
         except Exception:
             await interaction.response.send_message(
-                voice.broken("The kick didn't go through.", "Check the player id and try again."), ephemeral=True
+                voice.broken("The kick didn't go through.", "Check the player id and try again."),
+                ephemeral=True,
             )
             return
 

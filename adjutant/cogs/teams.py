@@ -111,7 +111,9 @@ class DisbandConfirmView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Confirmation timed out. Nothing was changed.", view=None)
+                await self.message.edit(
+                    content="Confirmation timed out. Nothing was changed.", view=None
+                )
             except discord.HTTPException:
                 pass
 
@@ -123,7 +125,10 @@ class DisbandConfirmView(view_util.ErrorHandledView):
             await _disband_team(self.bot, guild, self.team)
         except discord.Forbidden:
             await interaction.response.edit_message(
-                content=voice.broken("Couldn't remove everything.", "Check my permissions and tidy up the rest manually."),
+                content=voice.broken(
+                    "Couldn't remove everything.",
+                    "Check my permissions and tidy up the rest manually.",
+                ),
                 view=None,
             )
             return
@@ -133,63 +138,99 @@ class DisbandConfirmView(view_util.ErrorHandledView):
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(content="Stood down the order. Nothing changed.", view=None)
+        await interaction.response.edit_message(
+            content="Stood down the order. Nothing changed.", view=None
+        )
 
 
-async def _assign(bot: commands.Bot, interaction: discord.Interaction, member: discord.Member, team_name: str) -> None:
+async def _assign(
+    bot: commands.Bot, interaction: discord.Interaction, member: discord.Member, team_name: str
+) -> None:
     guild = interaction.guild
     assert guild is not None and bot.db is not None
-    row = await fetchone(bot.db, "SELECT role_id FROM teams WHERE guild_id = ? AND name = ?", (guild.id, team_name))
+    row = await fetchone(
+        bot.db, "SELECT role_id FROM teams WHERE guild_id = ? AND name = ?", (guild.id, team_name)
+    )
     if row is None:
-        await interaction.response.send_message(voice.decline(f"No team called **{team_name}** on record."), ephemeral=True)
+        await interaction.response.send_message(
+            voice.decline(f"No team called **{team_name}** on record."), ephemeral=True
+        )
         return
     role = guild.get_role(row["role_id"])
     if role is None:
         await interaction.response.send_message(
-            voice.broken(f"**{team_name}**'s role no longer exists.", "Disband and recreate the team."), ephemeral=True
+            voice.broken(
+                f"**{team_name}**'s role no longer exists.", "Disband and recreate the team."
+            ),
+            ephemeral=True,
         )
         return
     try:
         await member.add_roles(role, reason=f"Adjutant: team assign by {interaction.user}")
     except discord.Forbidden:
         await interaction.response.send_message(
-            voice.broken("I can't assign that role.", "Check my role sits above it in the hierarchy."), ephemeral=True
+            voice.broken(
+                "I can't assign that role.", "Check my role sits above it in the hierarchy."
+            ),
+            ephemeral=True,
         )
         return
-    await interaction.response.send_message(f"{member.mention} is now with **{team_name}**.", ephemeral=True)
+    await interaction.response.send_message(
+        f"{member.mention} is now with **{team_name}**.", ephemeral=True
+    )
 
 
-async def _remove(bot: commands.Bot, interaction: discord.Interaction, member: discord.Member, team_name: str) -> None:
+async def _remove(
+    bot: commands.Bot, interaction: discord.Interaction, member: discord.Member, team_name: str
+) -> None:
     guild = interaction.guild
     assert guild is not None and bot.db is not None
-    row = await fetchone(bot.db, "SELECT role_id FROM teams WHERE guild_id = ? AND name = ?", (guild.id, team_name))
+    row = await fetchone(
+        bot.db, "SELECT role_id FROM teams WHERE guild_id = ? AND name = ?", (guild.id, team_name)
+    )
     if row is None:
-        await interaction.response.send_message(voice.decline(f"No team called **{team_name}** on record."), ephemeral=True)
+        await interaction.response.send_message(
+            voice.decline(f"No team called **{team_name}** on record."), ephemeral=True
+        )
         return
     role = guild.get_role(row["role_id"])
     if role is None:
         await interaction.response.send_message(
-            voice.broken(f"**{team_name}**'s role no longer exists.", "Disband and recreate the team."), ephemeral=True
+            voice.broken(
+                f"**{team_name}**'s role no longer exists.", "Disband and recreate the team."
+            ),
+            ephemeral=True,
         )
         return
     try:
         await member.remove_roles(role, reason=f"Adjutant: team remove by {interaction.user}")
     except discord.Forbidden:
         await interaction.response.send_message(
-            voice.broken("I can't remove that role.", "Check my role sits above it in the hierarchy."), ephemeral=True
+            voice.broken(
+                "I can't remove that role.", "Check my role sits above it in the hierarchy."
+            ),
+            ephemeral=True,
         )
         return
-    await interaction.response.send_message(f"{member.mention} is off **{team_name}**.", ephemeral=True)
+    await interaction.response.send_message(
+        f"{member.mention} is off **{team_name}**.", ephemeral=True
+    )
 
 
-async def _disband(bot: commands.Bot, interaction: discord.Interaction, name: str, confirm: bool = False) -> None:
+async def _disband(
+    bot: commands.Bot, interaction: discord.Interaction, name: str, confirm: bool = False
+) -> None:
     """The whole /team disband flow — shared by the panel's Disband button
     (via a fresh confirm view) and /admin team-disband (the raw fallback)."""
     guild = interaction.guild
     assert guild is not None and bot.db is not None
-    team = await fetchone(bot.db, "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, name))
+    team = await fetchone(
+        bot.db, "SELECT * FROM teams WHERE guild_id = ? AND name = ?", (guild.id, name)
+    )
     if team is None:
-        await interaction.response.send_message(voice.decline(f"No team called **{name}** on record."), ephemeral=True)
+        await interaction.response.send_message(
+            voice.decline(f"No team called **{name}** on record."), ephemeral=True
+        )
         return
 
     if confirm:
@@ -197,11 +238,16 @@ async def _disband(bot: commands.Bot, interaction: discord.Interaction, name: st
             await _disband_team(bot, guild, dict(team))
         except discord.Forbidden:
             await interaction.response.send_message(
-                voice.broken("Couldn't remove everything.", "Check my permissions and tidy up the rest manually."),
+                voice.broken(
+                    "Couldn't remove everything.",
+                    "Check my permissions and tidy up the rest manually.",
+                ),
                 ephemeral=True,
             )
             return
-        await interaction.response.send_message(f"**{name}** stood down. Role and channels removed.", ephemeral=True)
+        await interaction.response.send_message(
+            f"**{name}** stood down. Role and channels removed.", ephemeral=True
+        )
         return
 
     view = DisbandConfirmView(bot, dict(team))
@@ -223,8 +269,16 @@ class TeamPanelView(view_util.ErrorHandledView):
     at click time since a click is a fresh interaction that may not come
     from whoever opened the panel."""
 
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, team_names: list[str],
-                 *, selected: str | None = None, timeout: float = 180.0):
+    def __init__(
+        self,
+        bot: commands.Bot,
+        guild: discord.Guild,
+        invoker_id: int,
+        team_names: list[str],
+        *,
+        selected: str | None = None,
+        timeout: float = 180.0,
+    ):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.guild = guild
@@ -233,7 +287,9 @@ class TeamPanelView(view_util.ErrorHandledView):
         self.selected_team: str | None = selected
         self.selected_member: discord.Member | None = None
         options = [discord.SelectOption(label=n, default=(n == selected)) for n in team_names[:25]]
-        self.team_select.options = options or [discord.SelectOption(label="No teams yet", value="__none__")]
+        self.team_select.options = options or [
+            discord.SelectOption(label="No teams yet", value="__none__")
+        ]
         self.team_select.disabled = not options
         self._sync_buttons()
 
@@ -265,23 +321,35 @@ class TeamPanelView(view_util.ErrorHandledView):
                 pass
 
     @discord.ui.select(placeholder="Choose a team to manage", row=0)
-    async def team_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
+    async def team_select(
+        self, interaction: discord.Interaction, select: discord.ui.Select
+    ) -> None:
         value = select.values[0]
         self.selected_team = None if value == "__none__" else value
         self._sync_buttons()
         await interaction.response.edit_message(view=self)
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Member to assign/remove", row=1)
-    async def member_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect) -> None:
+    async def member_select(
+        self, interaction: discord.Interaction, select: discord.ui.UserSelect
+    ) -> None:
         picked = select.values[0]
-        self.selected_member = picked if isinstance(picked, discord.Member) else self.guild.get_member(picked.id)
+        self.selected_member = (
+            picked if isinstance(picked, discord.Member) else self.guild.get_member(picked.id)
+        )
         self._sync_buttons()
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Assign…", style=discord.ButtonStyle.success, row=2)
-    async def assign_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def assign_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         actor = interaction.user
-        if not isinstance(actor, discord.Member) or self.selected_team is None or self.selected_member is None:
+        if (
+            not isinstance(actor, discord.Member)
+            or self.selected_team is None
+            or self.selected_member is None
+        ):
             return
         if not await member_has_permission(self.bot, self.guild, actor, "teams.manage"):
             await decline_missing_permission(interaction, "teams.manage")
@@ -291,9 +359,15 @@ class TeamPanelView(view_util.ErrorHandledView):
         await _assign(self.bot, interaction, self.selected_member, self.selected_team)
 
     @discord.ui.button(label="Remove…", style=discord.ButtonStyle.secondary, row=2)
-    async def remove_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def remove_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         actor = interaction.user
-        if not isinstance(actor, discord.Member) or self.selected_team is None or self.selected_member is None:
+        if (
+            not isinstance(actor, discord.Member)
+            or self.selected_team is None
+            or self.selected_member is None
+        ):
             return
         if not await member_has_permission(self.bot, self.guild, actor, "teams.manage"):
             await decline_missing_permission(interaction, "teams.manage")
@@ -303,7 +377,9 @@ class TeamPanelView(view_util.ErrorHandledView):
         await _remove(self.bot, interaction, self.selected_member, self.selected_team)
 
     @discord.ui.button(label="Disband…", style=discord.ButtonStyle.danger, row=2)
-    async def disband_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def disband_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         actor = interaction.user
         if not isinstance(actor, discord.Member) or self.selected_team is None:
             return
@@ -337,7 +413,11 @@ class TeamsCog(commands.Cog, name="TeamsCog"):
             names = await self._team_names(guild)
             view = TeamPanelView(self.bot, guild, interaction.user.id, names)
             await interaction.response.send_message(
-                embed=voice.embed("Teams", "\n".join(f"- {n}" for n in names) or "No teams yet — run `/team <name>` to stand one up."),
+                embed=voice.embed(
+                    "Teams",
+                    "\n".join(f"- {n}" for n in names)
+                    or "No teams yet — run `/team <name>` to stand one up.",
+                ),
                 view=view,
                 ephemeral=True,
             )
@@ -351,9 +431,13 @@ class TeamsCog(commands.Cog, name="TeamsCog"):
             await decline_missing_permission(interaction, "teams.manage")
             return
 
-        existing = await fetchone(self.bot.db, "SELECT id FROM teams WHERE guild_id = ? AND name = ?", (guild.id, name))
+        existing = await fetchone(
+            self.bot.db, "SELECT id FROM teams WHERE guild_id = ? AND name = ?", (guild.id, name)
+        )
         if existing is not None:
-            await interaction.response.send_message(voice.decline(f"A team called **{name}** already exists."), ephemeral=True)
+            await interaction.response.send_message(
+                voice.decline(f"A team called **{name}** already exists."), ephemeral=True
+            )
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -401,16 +485,22 @@ class TeamsCog(commands.Cog, name="TeamsCog"):
         names = await self._team_names(guild)
         view = TeamPanelView(self.bot, guild, interaction.user.id, names, selected=name)
         await interaction.followup.send(
-            f"Stood up **{name}** — role, category, and channels are live.", view=view, ephemeral=True
+            f"Stood up **{name}** — role, category, and channels are live.",
+            view=view,
+            ephemeral=True,
         )
         view.message = await interaction.original_response()
 
-    async def disband(self, interaction: discord.Interaction, name: str, confirm: bool = False) -> None:
+    async def disband(
+        self, interaction: discord.Interaction, name: str, confirm: bool = False
+    ) -> None:
         """Kept for /admin team-disband — the raw fallback for when the
         panel's Disband button isn't available."""
         await _disband(self.bot, interaction, name, confirm=confirm)
 
-    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return  # already messaged + logged inside the failing check
         await view_util.handle_app_command_error(interaction, error, log)

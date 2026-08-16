@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import time
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from aiohttp import web
 
@@ -142,7 +142,7 @@ def create_feed_app(token_lookup: TokenLookup, on_snapshot: SnapshotHandler) -> 
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return web.json_response({"error": "missing bearer token"}, status=401)
-        token = auth[len("Bearer "):].strip()
+        token = auth[len("Bearer ") :].strip()
         if not token:
             return web.json_response({"error": "missing bearer token"}, status=401)
 
@@ -204,7 +204,10 @@ class FeedLink(ServerLink):
     async def status(self) -> ServerStatus:
         if self._is_stale():
             return ServerStatus(
-                name="", scenario="", players=0, max_players=0,
+                name="",
+                scenario="",
+                players=0,
+                max_players=0,
                 reachable=False,
                 detail="No telemetry received recently — check the PlayerTelemetry mod is "
                 "running and still pointed at this bot's feed endpoint.",

@@ -23,6 +23,7 @@ BOT_HEALTH_HOST overrides the bind address (defaults to 127.0.0.1 since
 exposing the bot's internals to the LAN is unnecessary risk for a local
 liveness probe).
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,7 +43,8 @@ def _enabled_port() -> int | None:
         return int(raw)
     except ValueError:
         log.warning(
-            "BOT_HEALTH_PORT=%r isn't an int — health endpoint disabled", raw,
+            "BOT_HEALTH_PORT=%r isn't an int — health endpoint disabled",
+            raw,
         )
         return None
 
@@ -103,14 +105,14 @@ async def _metrics(request: web.Request) -> web.Response:
     role_grants_total = await _table_count(bot, "role_grants")
 
     lines = [
-        f'adjutant_ready {1 if status["ready"] else 0}',
-        f'adjutant_healthy {1 if status["healthy"] else 0}',
-        f'adjutant_latency_ms {status["latency_ms"] or 0}',
-        f'adjutant_guilds {status["guilds"] or 0}',
-        f'adjutant_guilds_configured_total {guilds_total}',
-        f'adjutant_teams_total {teams_total}',
-        f'adjutant_events_total {events_total}',
-        f'adjutant_role_grants_total {role_grants_total}',
+        f"adjutant_ready {1 if status['ready'] else 0}",
+        f"adjutant_healthy {1 if status['healthy'] else 0}",
+        f"adjutant_latency_ms {status['latency_ms'] or 0}",
+        f"adjutant_guilds {status['guilds'] or 0}",
+        f"adjutant_guilds_configured_total {guilds_total}",
+        f"adjutant_teams_total {teams_total}",
+        f"adjutant_events_total {events_total}",
+        f"adjutant_role_grants_total {role_grants_total}",
     ]
     return web.Response(text="\n".join(lines) + "\n", content_type="text/plain")
 
@@ -140,7 +142,8 @@ class BotHealthServer:
         self._site = site
         log.info(
             "[health] listening on http://%s:%d (healthz, metrics)",
-            self.host, self.port,
+            self.host,
+            self.port,
         )
 
     async def stop(self) -> None:
@@ -166,7 +169,9 @@ async def maybe_start_health_server(bot: Any) -> BotHealthServer | None:
     except OSError as e:
         log.warning(
             "[health] couldn't bind %s:%d (%s) — endpoint disabled",
-            _bind_host(), port, e,
+            _bind_host(),
+            port,
+            e,
         )
         return None
     return server

@@ -9,7 +9,6 @@ feature only.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import a2s
@@ -39,7 +38,7 @@ class A2SLink(ServerLink):
     async def status(self) -> ServerStatus:
         try:
             info = await a2s.ainfo((self.host, self.port), timeout=self.timeout)
-        except (OSError, asyncio.TimeoutError, a2s.BrokenMessageError) as exc:
+        except (TimeoutError, OSError, a2s.BrokenMessageError) as exc:
             log.info("A2S query to %s:%s failed: %s", self.host, self.port, exc)
             return ServerStatus(
                 name="",

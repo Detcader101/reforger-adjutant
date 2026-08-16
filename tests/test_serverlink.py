@@ -5,7 +5,6 @@ no real network, and no dependency on berconpy actually being installed).
 
 from __future__ import annotations
 
-import asyncio
 import sys
 import types
 
@@ -13,7 +12,14 @@ import a2s
 import pytest
 
 from adjutant.cogs.serverlink import build_link
-from adjutant.serverlink import NullLink, NotSupported, PlayerInfo, ServerLink, ServerStatus, Snapshot
+from adjutant.serverlink import (
+    NotSupported,
+    NullLink,
+    PlayerInfo,
+    ServerLink,
+    ServerStatus,
+    Snapshot,
+)
 from adjutant.serverlink.a2s_link import A2SLink
 from adjutant.serverlink.feed import FeedLink, feed_host, feed_port
 from adjutant.serverlink.null import NOT_LINKED_DETAIL
@@ -183,12 +189,17 @@ async def test_a2slink_status_reachable_on_success(monkeypatch):
     monkeypatch.setattr(a2s, "ainfo", fake_ainfo)
     status = await A2SLink("1.2.3.4", 17777).status()
     assert status.reachable is True
-    assert (status.name, status.scenario, status.players, status.max_players) == ("Test Server", "Everon", 3, 16)
+    assert (status.name, status.scenario, status.players, status.max_players) == (
+        "Test Server",
+        "Everon",
+        3,
+        16,
+    )
 
 
 async def test_a2slink_status_unreachable_on_timeout(monkeypatch):
     async def fake_ainfo(address, timeout=5.0):
-        raise asyncio.TimeoutError()
+        raise TimeoutError()
 
     monkeypatch.setattr(a2s, "ainfo", fake_ainfo)
     status = await A2SLink("1.2.3.4", 17777).status()

@@ -203,10 +203,10 @@ def format_grid(x: float, z: float, digits: int = 6) -> str:
     half = digits // 2
     multiplier = _grid_multiplier(half)
     max_val = 10**half - 1
-    easting = int(round(x / multiplier))
-    northing = int(round(z / multiplier))
-    easting = int(_clamp(easting, 0, max_val))
-    northing = int(_clamp(northing, 0, max_val))
+    easting = round(x / multiplier)
+    northing = round(z / multiplier)
+    easting = _clamp(easting, 0, max_val)
+    northing = _clamp(northing, 0, max_val)
     return f"{easting:0{half}d} {northing:0{half}d}"
 
 
@@ -247,7 +247,9 @@ _OUTLINE_COLOR = (20, 20, 20, 255)
 _LABEL_COLOR = (255, 255, 255, 255)
 
 
-def _draw_marker(draw: ImageDraw.ImageDraw, px: float, py: float, marker: Marker, font: ImageFont.ImageFont) -> None:
+def _draw_marker(
+    draw: ImageDraw.ImageDraw, px: float, py: float, marker: Marker, font: ImageFont.ImageFont
+) -> None:
     style = _MARKER_STYLES.get(marker.kind, _DEFAULT_MARKER_STYLE)
     r = style.radius
     fill = (*style.color, 255)

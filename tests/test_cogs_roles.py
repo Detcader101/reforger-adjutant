@@ -7,15 +7,12 @@ carries a Revoke button. `/admin rank-revoke` is the raw fallback for when
 that button isn't available. Ladder editing (ladder_add/ladder_remove) has
 no slash command any more — see the module docstring in cogs/roles.py.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
-from adjutant.cogs.admin import AdminCog
-from adjutant.cogs.roles import RevokeGrantView, RolesCog
-from adjutant.services import grants as grants_service
 from fakes import (
     FakeGuild,
     build_roles_cog,
@@ -27,6 +24,10 @@ from fakes import (
     reply_text,
     seed_guild,
 )
+
+from adjutant.cogs.admin import AdminCog
+from adjutant.cogs.roles import RevokeGrantView, RolesCog
+from adjutant.services import grants as grants_service
 
 
 @pytest.fixture
@@ -58,6 +59,7 @@ def _admin(guild):
 # ladder editing — plain methods only, no slash command any more              #
 # --------------------------------------------------------------------------- #
 
+
 async def test_ladder_add_then_bare_rank_shows_it(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -81,7 +83,12 @@ async def test_ladder_remove_takes_a_rank_off_the_ladder(cog, bot, guild):
     admin = _admin(guild)
     role = make_role("Temp Rank")
     guild.roles.append(role)
-    await cog.ladder_add(make_interaction(bot, guild=guild, user=admin, command_name="rank"), role=role, position=1, name="Temp Rank")
+    await cog.ladder_add(
+        make_interaction(bot, guild=guild, user=admin, command_name="rank"),
+        role=role,
+        position=1,
+        name="Temp Rank",
+    )
 
     remove_interaction = make_interaction(bot, guild=guild, user=admin, command_name="rank")
     await cog.ladder_remove(remove_interaction, role=role)
@@ -95,6 +102,7 @@ async def test_ladder_remove_takes_a_rank_off_the_ladder(cog, bot, guild):
 # --------------------------------------------------------------------------- #
 # bare /rank — shows the ladder, open to anyone                               #
 # --------------------------------------------------------------------------- #
+
 
 async def test_bare_rank_with_no_ladder_configured_says_so(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
@@ -111,6 +119,7 @@ async def test_bare_rank_with_no_ladder_configured_says_so(cog, bot, guild):
 # /rank <member> <role> [for] — grant                                         #
 # --------------------------------------------------------------------------- #
 
+
 async def test_grant_with_duration_applies_role_and_writes_temp_grant_with_expiry(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -119,9 +128,9 @@ async def test_grant_with_duration_applies_role_and_writes_temp_grant_with_expir
     guild.roles.append(role)
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="rank")
 
-    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    before = datetime.now(UTC).replace(tzinfo=None)
     await RolesCog.rank.callback(cog, interaction, member=recruit, role=role, duration="2h")
-    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    after = datetime.now(UTC).replace(tzinfo=None)
 
     assert role in recruit.roles
     rows = await bot.db.execute_fetchall(
@@ -183,6 +192,7 @@ async def test_grant_reports_forbidden_and_records_no_grant(cog, bot, guild):
 
     async def _raise_forbidden(*args, **kwargs):
         raise forbidden("Missing Permissions")
+
     recruit.add_roles = _raise_forbidden
 
     interaction = make_interaction(bot, guild=guild, user=admin, command_name="rank")
@@ -207,7 +217,9 @@ async def test_grant_is_refused_for_a_non_privileged_member(cog, bot, guild):
 
     assert reply_ephemeral(interaction) is True
     assert role not in recruit.roles
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "permission_denied" for i in incidents)
 
 
@@ -240,6 +252,7 @@ async def test_only_role_given_declines_and_explains_both_are_needed(cog, bot, g
 # Revoke button + /admin rank-revoke fallback                                 #
 # --------------------------------------------------------------------------- #
 
+
 async def test_revoke_button_removes_both_the_role_and_the_grant_row(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
@@ -250,7 +263,9 @@ async def test_revoke_button_removes_both_the_role_and_the_grant_row(cog, bot, g
     await RolesCog.rank.callback(cog, grant_interaction, member=recruit, role=role, duration=None)
     view = grant_interaction.response.messages[-1]["view"]
 
-    click = make_interaction(bot, guild=guild, user=admin, message=grant_interaction.response.message)
+    click = make_interaction(
+        bot, guild=guild, user=admin, message=grant_interaction.response.message
+    )
     await RevokeGrantView.revoke(view, click, None)
 
     assert role not in recruit.roles
@@ -273,7 +288,9 @@ async def test_revoke_button_recheck_declines_a_non_privileged_clicker(cog, bot,
     await RolesCog.rank.callback(cog, grant_interaction, member=recruit, role=role, duration=None)
     view = grant_interaction.response.messages[-1]["view"]
 
-    click = make_interaction(bot, guild=guild, user=grunt, message=grant_interaction.response.message)
+    click = make_interaction(
+        bot, guild=guild, user=grunt, message=grant_interaction.response.message
+    )
     await RevokeGrantView.revoke(view, click, None)
 
     assert role in recruit.roles  # untouched
@@ -292,17 +309,25 @@ async def test_revoke_button_is_rate_limited_like_the_old_slash_command_was(cog,
     last_click = None
     for recruit in recruits:
         grant_interaction = make_interaction(bot, guild=guild, user=admin, command_name="rank")
-        await RolesCog.rank.callback(cog, grant_interaction, member=recruit, role=role, duration=None)
+        await RolesCog.rank.callback(
+            cog, grant_interaction, member=recruit, role=role, duration=None
+        )
         view = grant_interaction.response.messages[-1]["view"]
-        last_click = make_interaction(bot, guild=guild, user=admin, message=grant_interaction.response.message)
+        last_click = make_interaction(
+            bot, guild=guild, user=admin, message=grant_interaction.response.message
+        )
         await RevokeGrantView.revoke(view, last_click, None)
 
     assert "often" in reply_text(last_click).lower()
-    incidents = await bot.db.execute_fetchall("SELECT * FROM incidents WHERE guild_id = ?", (guild.id,))
+    incidents = await bot.db.execute_fetchall(
+        "SELECT * FROM incidents WHERE guild_id = ?", (guild.id,)
+    )
     assert any(i["kind"] == "rate_limit" and i["detail"] == "rank.revoke" for i in incidents)
 
 
-async def test_admin_rank_revoke_removes_both_the_role_and_the_grant_row(admin_cog, cog, bot, guild):
+async def test_admin_rank_revoke_removes_both_the_role_and_the_grant_row(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
     recruit = make_member(guild, display_name="Recruit")
@@ -311,7 +336,9 @@ async def test_admin_rank_revoke_removes_both_the_role_and_the_grant_row(admin_c
     grant_interaction = make_interaction(bot, guild=guild, user=admin, command_name="rank")
     await RolesCog.rank.callback(cog, grant_interaction, member=recruit, role=role, duration=None)
 
-    revoke_interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin rank-revoke")
+    revoke_interaction = make_interaction(
+        bot, guild=guild, user=admin, command_name="admin rank-revoke"
+    )
     await AdminCog.rank_revoke.callback(admin_cog, revoke_interaction, member=recruit, role=role)
 
     assert role not in recruit.roles
@@ -323,7 +350,9 @@ async def test_admin_rank_revoke_removes_both_the_role_and_the_grant_row(admin_c
     assert reply_ephemeral(revoke_interaction) is True
 
 
-async def test_admin_rank_revoke_does_not_lose_the_grant_record_when_discord_refuses_removal(admin_cog, cog, bot, guild):
+async def test_admin_rank_revoke_does_not_lose_the_grant_record_when_discord_refuses_removal(
+    admin_cog, cog, bot, guild
+):
     await seed_guild(bot.db, guild.id)
     admin = _admin(guild)
     recruit = make_member(guild, display_name="Recruit")
@@ -334,9 +363,12 @@ async def test_admin_rank_revoke_does_not_lose_the_grant_record_when_discord_ref
 
     async def _raise_forbidden(*args, **kwargs):
         raise forbidden("Missing Permissions")
+
     recruit.remove_roles = _raise_forbidden
 
-    revoke_interaction = make_interaction(bot, guild=guild, user=admin, command_name="admin rank-revoke")
+    revoke_interaction = make_interaction(
+        bot, guild=guild, user=admin, command_name="admin rank-revoke"
+    )
     await AdminCog.rank_revoke.callback(admin_cog, revoke_interaction, member=recruit, role=role)
 
     assert reply_ephemeral(revoke_interaction) is True
@@ -357,7 +389,9 @@ async def test_admin_rank_revoke_is_refused_for_a_non_privileged_member(admin_co
     grant_interaction = make_interaction(bot, guild=guild, user=admin, command_name="rank")
     await RolesCog.rank.callback(cog, grant_interaction, member=recruit, role=role, duration=None)
 
-    revoke_interaction = make_interaction(bot, guild=guild, user=grunt, command_name="admin rank-revoke")
+    revoke_interaction = make_interaction(
+        bot, guild=guild, user=grunt, command_name="admin rank-revoke"
+    )
     await AdminCog.rank_revoke.callback(admin_cog, revoke_interaction, member=recruit, role=role)
 
     assert role in recruit.roles  # untouched
@@ -368,6 +402,7 @@ async def test_admin_rank_revoke_is_refused_for_a_non_privileged_member(admin_co
 # background expiry sweep                                                     #
 # --------------------------------------------------------------------------- #
 
+
 async def test_expiry_sweep_removes_only_due_grants_and_leaves_perma_alone(cog, bot, guild):
     await seed_guild(bot.db, guild.id)
     due_role = make_role("Expired Temp")
@@ -377,16 +412,30 @@ async def test_expiry_sweep_removes_only_due_grants_and_leaves_perma_alone(cog, 
     member = make_member(guild, display_name="Recruit", roles=[due_role, live_role, perma_role])
 
     due_id = await grants_service.record_grant(
-        bot.db, guild_id=guild.id, user_id=member.id, role_id=due_role.id,
-        kind="temp", granted_by=1, expires_at="2020-01-01 00:00:00",
+        bot.db,
+        guild_id=guild.id,
+        user_id=member.id,
+        role_id=due_role.id,
+        kind="temp",
+        granted_by=1,
+        expires_at="2020-01-01 00:00:00",
     )
     live_id = await grants_service.record_grant(
-        bot.db, guild_id=guild.id, user_id=member.id, role_id=live_role.id,
-        kind="temp", granted_by=1, expires_at="2099-01-01 00:00:00",
+        bot.db,
+        guild_id=guild.id,
+        user_id=member.id,
+        role_id=live_role.id,
+        kind="temp",
+        granted_by=1,
+        expires_at="2099-01-01 00:00:00",
     )
     perma_id = await grants_service.record_grant(
-        bot.db, guild_id=guild.id, user_id=member.id, role_id=perma_role.id,
-        kind="perma", granted_by=1,
+        bot.db,
+        guild_id=guild.id,
+        user_id=member.id,
+        role_id=perma_role.id,
+        kind="perma",
+        granted_by=1,
     )
 
     await RolesCog.expire_grants.coro(cog)
@@ -396,7 +445,10 @@ async def test_expiry_sweep_removes_only_due_grants_and_leaves_perma_alone(cog, 
     assert perma_role in member.roles
 
     remaining_ids = {
-        r["id"] for r in await bot.db.execute_fetchall("SELECT id FROM role_grants WHERE guild_id = ?", (guild.id,))
+        r["id"]
+        for r in await bot.db.execute_fetchall(
+            "SELECT id FROM role_grants WHERE guild_id = ?", (guild.id,)
+        )
     }
     assert due_id not in remaining_ids
     assert live_id in remaining_ids
@@ -414,17 +466,26 @@ async def test_expiry_sweep_keeps_a_grant_it_could_not_remove_so_it_retries(cog,
 
     async def _raise_forbidden(*args, **kwargs):
         raise forbidden("Missing Permissions")
+
     member.remove_roles = _raise_forbidden
 
     grant_id = await grants_service.record_grant(
-        bot.db, guild_id=guild.id, user_id=member.id, role_id=role.id,
-        kind="temp", granted_by=1, expires_at="2020-01-01 00:00:00",
+        bot.db,
+        guild_id=guild.id,
+        user_id=member.id,
+        role_id=role.id,
+        kind="temp",
+        granted_by=1,
+        expires_at="2020-01-01 00:00:00",
     )
 
     await RolesCog.expire_grants.coro(cog)
 
     remaining_ids = {
-        r["id"] for r in await bot.db.execute_fetchall("SELECT id FROM role_grants WHERE guild_id = ?", (guild.id,))
+        r["id"]
+        for r in await bot.db.execute_fetchall(
+            "SELECT id FROM role_grants WHERE guild_id = ?", (guild.id,)
+        )
     }
     assert grant_id in remaining_ids
 
@@ -437,13 +498,21 @@ async def test_expiry_sweep_discards_a_grant_whose_member_has_left(cog, bot, gui
     guild.roles.append(role)
 
     grant_id = await grants_service.record_grant(
-        bot.db, guild_id=guild.id, user_id=999_999, role_id=role.id,
-        kind="temp", granted_by=1, expires_at="2020-01-01 00:00:00",
+        bot.db,
+        guild_id=guild.id,
+        user_id=999_999,
+        role_id=role.id,
+        kind="temp",
+        granted_by=1,
+        expires_at="2020-01-01 00:00:00",
     )
 
     await RolesCog.expire_grants.coro(cog)
 
     remaining_ids = {
-        r["id"] for r in await bot.db.execute_fetchall("SELECT id FROM role_grants WHERE guild_id = ?", (guild.id,))
+        r["id"]
+        for r in await bot.db.execute_fetchall(
+            "SELECT id FROM role_grants WHERE guild_id = ?", (guild.id,)
+        )
     }
     assert grant_id not in remaining_ids

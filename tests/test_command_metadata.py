@@ -11,6 +11,7 @@ Inspects the cog *classes* rather than instantiating them, since discord.py
 records this metadata at class-creation time. No bot, database or event loop
 needed, so it runs in milliseconds on every test run.
 """
+
 from __future__ import annotations
 
 import importlib

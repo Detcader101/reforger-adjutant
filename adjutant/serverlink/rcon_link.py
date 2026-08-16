@@ -242,7 +242,11 @@ class RconLink(ServerLink):
         await self._run_admin_command(command)
 
     async def ban(self, player_id: str, reason: str = "") -> None:
-        command = f"#ban create {player_id} 0 {reason}".strip() if reason else f"#ban create {player_id} 0"
+        command = (
+            f"#ban create {player_id} 0 {reason}".strip()
+            if reason
+            else f"#ban create {player_id} 0"
+        )
         await self._run_admin_command(command)
 
     async def restart(self) -> None:

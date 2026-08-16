@@ -34,7 +34,8 @@ async def test_feature_writes_succeed_after_ensuring_the_guild(tmp_conn):
     await guilds_service.ensure_guild(tmp_conn, 4242)
 
     await tmp_conn.execute(
-        "INSERT INTO teams (guild_id, name, role_id, category_id) VALUES (?, 'Alpha', 1, 2)", (4242,)
+        "INSERT INTO teams (guild_id, name, role_id, category_id) VALUES (?, 'Alpha', 1, 2)",
+        (4242,),
     )
     await tmp_conn.commit()
 

@@ -112,7 +112,9 @@ async def record_grant(
     return cursor.lastrowid
 
 
-async def revoke_grant(conn: aiosqlite.Connection, *, guild_id: int, user_id: int, role_id: int) -> int:
+async def revoke_grant(
+    conn: aiosqlite.Connection, *, guild_id: int, user_id: int, role_id: int
+) -> int:
     """Delete all grants matching guild/user/role, regardless of kind.
     Returns the number of rows removed."""
     cursor = await conn.execute(

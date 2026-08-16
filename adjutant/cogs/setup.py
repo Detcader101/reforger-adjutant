@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 import discord
 from discord import app_commands
@@ -39,15 +39,23 @@ DEFAULT_LADDER = (
 
 FEATURE_OPTIONS = [
     discord.SelectOption(label="Teams", value="teams", description="Locked team roles + channels"),
-    discord.SelectOption(label="Events", value="events", description="Ops/events with signup and reminders"),
-    discord.SelectOption(label="Map", value="map", description="Rendered map messages with markers"),
-    discord.SelectOption(label="Server Link", value="serverlink", description="Game-server status integration"),
+    discord.SelectOption(
+        label="Events", value="events", description="Ops/events with signup and reminders"
+    ),
+    discord.SelectOption(
+        label="Map", value="map", description="Rendered map messages with markers"
+    ),
+    discord.SelectOption(
+        label="Server Link", value="serverlink", description="Game-server status integration"
+    ),
 ]
 _VALID_FEATURES = {option.value for option in FEATURE_OPTIONS}
 
 TEMPLATE_OPTIONS = [
     discord.SelectOption(
-        label=tmpl.label, value=tmpl.key, description=tmpl.description,
+        label=tmpl.label,
+        value=tmpl.key,
+        description=tmpl.description,
         default=(tmpl.key == templates_service.DEFAULT_TEMPLATE_KEY),
     )
     for tmpl in templates_service.TEMPLATES.values()
@@ -59,19 +67,34 @@ TEMPLATE_OPTIONS = [
 # Deliberately excludes administrator: this bot is designed to run without
 # it, so the preflight only ever names the specific permission that's short.
 REQUIRED_PERMISSIONS: tuple[tuple[str, str], ...] = (
-    ("view_channel", "I can't see channels at all — nearly everything breaks, since Discord hides a "
-                      "channel from anyone (bot included) whose effective view_channel resolves false."),
-    ("manage_roles", "I can't create or manage rank and team roles; the ladder tools in /setup, /rank, "
-                      "and /team create will decline."),
-    ("manage_channels", "I can't create or manage team and template channels/categories; /team create "
-                         "and channel-creating setup templates will decline."),
+    (
+        "view_channel",
+        "I can't see channels at all — nearly everything breaks, since Discord hides a "
+        "channel from anyone (bot included) whose effective view_channel resolves false.",
+    ),
+    (
+        "manage_roles",
+        "I can't create or manage rank and team roles; the ladder tools in /setup, /rank, "
+        "and /team create will decline.",
+    ),
+    (
+        "manage_channels",
+        "I can't create or manage team and template channels/categories; /team create "
+        "and channel-creating setup templates will decline.",
+    ),
     ("send_messages", "I can't post replies, announcements, or audit notes at all."),
     ("embed_links", "I can't show the styled embeds used throughout, including this report."),
     ("attach_files", "I can't post rendered map images."),
-    ("read_message_history", "I can't edit my own panel messages (map renders, event posts) in place, "
-                              "so they'd get reposted instead of updated."),
-    ("connect", "I can't grant myself connect in a team's locked voice channel — Discord refuses an "
-                "overwrite granting a permission I don't already hold myself."),
+    (
+        "read_message_history",
+        "I can't edit my own panel messages (map renders, event posts) in place, "
+        "so they'd get reposted instead of updated.",
+    ),
+    (
+        "connect",
+        "I can't grant myself connect in a team's locked voice channel — Discord refuses an "
+        "overwrite granting a permission I don't already hold myself.",
+    ),
     ("speak", "I can't grant myself speak in a team's locked voice channel, for the same reason."),
 )
 
@@ -102,7 +125,9 @@ def _blocked_channels(guild: discord.Guild) -> list:
         return []
     channels = getattr(guild, "channels", None)
     if channels is None:
-        channels = list(getattr(guild, "text_channels", [])) + list(getattr(guild, "categories", []))
+        channels = list(getattr(guild, "text_channels", [])) + list(
+            getattr(guild, "categories", [])
+        )
     blocked = []
     for channel in channels:
         permissions_for = getattr(channel, "permissions_for", None)
@@ -163,13 +188,20 @@ def _preflight_embed(guild: discord.Guild, *, minimal: bool) -> discord.Embed:
 
     trouble = bool(missing) or not hierarchy_ok or bool(blocked)
     return voice.embed(
-        "Setup Preflight", "\n".join(lines),
-        colour=voice.COLOUR_ALERT if trouble else voice.COLOUR_PRIMARY, minimal=minimal,
+        "Setup Preflight",
+        "\n".join(lines),
+        colour=voice.COLOUR_ALERT if trouble else voice.COLOUR_PRIMARY,
+        minimal=minimal,
     )
 
 
 async def _save_guild_config(
-    bot: commands.Bot, guild_id: int, *, minimal_mode: bool, audit_channel_id: int | None, features: set[str]
+    bot: commands.Bot,
+    guild_id: int,
+    *,
+    minimal_mode: bool,
+    audit_channel_id: int | None,
+    features: set[str],
 ) -> None:
     assert bot.db is not None
     features_json = json.dumps({feature: True for feature in features})
@@ -201,7 +233,9 @@ async def _upsert_ladder(
             try:
                 role = await guild.create_role(name=name, reason=reason)
             except discord.Forbidden:
-                log.warning("Missing permission to create ladder role %s in guild %s", name, guild.id)
+                log.warning(
+                    "Missing permission to create ladder role %s in guild %s", name, guild.id
+                )
                 break
         # bot_created is deliberately left out of the UPDATE clause: it must
         # keep its original value so /teardown never deletes a rank role the
@@ -217,10 +251,14 @@ async def _upsert_ladder(
 
 
 async def _create_default_ladder(bot: commands.Bot, guild: discord.Guild) -> list[discord.Role]:
-    return await _upsert_ladder(bot, guild, DEFAULT_LADDER, reason="Adjutant: default rank ladder from /setup")
+    return await _upsert_ladder(
+        bot, guild, DEFAULT_LADDER, reason="Adjutant: default rank ladder from /setup"
+    )
 
 
-async def _apply_custom_ladder(bot: commands.Bot, guild: discord.Guild, names: list[str]) -> list[discord.Role]:
+async def _apply_custom_ladder(
+    bot: commands.Bot, guild: discord.Guild, names: list[str]
+) -> list[discord.Role]:
     """Replace the guild's entire rank ladder with `names` (lowest-first).
 
     Unlike _upsert_ladder (additive, used by templates/default), this is a
@@ -247,9 +285,13 @@ async def _apply_custom_ladder(bot: commands.Bot, guild: discord.Guild, names: l
         made_it_now = role is None
         if role is None:
             try:
-                role = await guild.create_role(name=name, reason="Adjutant: custom rank ladder from /admin ranks")
+                role = await guild.create_role(
+                    name=name, reason="Adjutant: custom rank ladder from /admin ranks"
+                )
             except discord.Forbidden:
-                log.warning("Missing permission to create ladder role %s in guild %s", name, guild.id)
+                log.warning(
+                    "Missing permission to create ladder role %s in guild %s", name, guild.id
+                )
                 break
         bot_created = 1 if made_it_now else previously_bot_created.get(role.id, 0)
         new_rows.append((guild.id, role.id, position, name, bot_created))
@@ -258,7 +300,8 @@ async def _apply_custom_ladder(bot: commands.Bot, guild: discord.Guild, names: l
     await bot.db.execute("DELETE FROM ranks WHERE guild_id = ?", (guild.id,))
     for row in new_rows:
         await bot.db.execute(
-            "INSERT INTO ranks (guild_id, role_id, position, name, bot_created) VALUES (?, ?, ?, ?, ?)", row
+            "INSERT INTO ranks (guild_id, role_id, position, name, bot_created) VALUES (?, ?, ?, ?, ?)",
+            row,
         )
     await bot.db.commit()
     return roles
@@ -278,19 +321,27 @@ async def _validate_and_apply_custom_ladder(
     return roles, []
 
 
-async def _apply_channels(guild: discord.Guild, specs: Sequence[templates_service.ChannelSpec]) -> list:
+async def _apply_channels(
+    guild: discord.Guild, specs: Sequence[templates_service.ChannelSpec]
+) -> list:
     """Create-or-reuse each channel (and its category) by name — the same
     reuse discipline as _upsert_ladder, so applying a template twice never
     duplicates a category or channel."""
     created: list = []
     categories: dict[str, discord.CategoryChannel] = {}
     for spec in specs:
-        category = categories.get(spec.category) or discord.utils.get(guild.categories, name=spec.category)
+        category = categories.get(spec.category) or discord.utils.get(
+            guild.categories, name=spec.category
+        )
         if category is None:
             try:
-                category = await guild.create_category(name=spec.category, reason="Adjutant: template scaffold")
+                category = await guild.create_category(
+                    name=spec.category, reason="Adjutant: template scaffold"
+                )
             except discord.Forbidden:
-                log.warning("Missing permission to create category %s in guild %s", spec.category, guild.id)
+                log.warning(
+                    "Missing permission to create category %s in guild %s", spec.category, guild.id
+                )
                 continue
         categories[spec.category] = category
 
@@ -300,9 +351,13 @@ async def _apply_channels(guild: discord.Guild, specs: Sequence[templates_servic
             continue
         try:
             if spec.kind == "voice":
-                channel = await category.create_voice_channel(spec.name, reason="Adjutant: template scaffold")
+                channel = await category.create_voice_channel(
+                    spec.name, reason="Adjutant: template scaffold"
+                )
             else:
-                channel = await category.create_text_channel(spec.name, reason="Adjutant: template scaffold")
+                channel = await category.create_text_channel(
+                    spec.name, reason="Adjutant: template scaffold"
+                )
         except discord.Forbidden:
             log.warning("Missing permission to create channel %s in guild %s", spec.name, guild.id)
             continue
@@ -316,7 +371,10 @@ async def _apply_template(
     ranks: list[discord.Role] = []
     if tmpl.ranks:
         ranks = await _upsert_ladder(
-            bot, guild, list(enumerate(tmpl.ranks)), reason=f"Adjutant: {tmpl.label} template from /setup"
+            bot,
+            guild,
+            list(enumerate(tmpl.ranks)),
+            reason=f"Adjutant: {tmpl.label} template from /setup",
         )
     channels: list = []
     if tmpl.channels:
@@ -334,8 +392,12 @@ def _format_creation_note(ranks: list[discord.Role], channels: list) -> str:
 
 
 async def apply_setup_selection(
-    bot: commands.Bot, guild: discord.Guild, *,
-    minimal_mode: bool, audit_channel_id: int | None, features: set[str],
+    bot: commands.Bot,
+    guild: discord.Guild,
+    *,
+    minimal_mode: bool,
+    audit_channel_id: int | None,
+    features: set[str],
     template_key: str = templates_service.DEFAULT_TEMPLATE_KEY,
     create_default_ladder: bool = False,
 ) -> tuple[list[discord.Role], list]:
@@ -349,9 +411,15 @@ async def apply_setup_selection(
     Returns (created_ranks, created_channels).
     """
     await _save_guild_config(
-        bot, guild.id, minimal_mode=minimal_mode, audit_channel_id=audit_channel_id, features=features,
+        bot,
+        guild.id,
+        minimal_mode=minimal_mode,
+        audit_channel_id=audit_channel_id,
+        features=features,
     )
-    tmpl = templates_service.TEMPLATES.get(template_key, templates_service.TEMPLATES[templates_service.DEFAULT_TEMPLATE_KEY])
+    tmpl = templates_service.TEMPLATES.get(
+        template_key, templates_service.TEMPLATES[templates_service.DEFAULT_TEMPLATE_KEY]
+    )
     if tmpl.ranks or tmpl.channels:
         return await _apply_template(bot, guild, tmpl)
     if create_default_ladder:
@@ -363,7 +431,9 @@ class SetupView(view_util.ErrorHandledView):
     """Stateful wizard: builds up guild config across several interactions
     on one ephemeral message, then writes it all on Finish."""
 
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 300.0):
+    def __init__(
+        self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 300.0
+    ):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.guild = guild
@@ -378,7 +448,9 @@ class SetupView(view_util.ErrorHandledView):
 
     def _sync_labels(self) -> None:
         self.minimal_toggle.label = f"Minimal mode: {'ON' if self.minimal_mode else 'OFF'}"
-        self.ladder_toggle.label = f"Default ladder: {'YES' if self.create_default_ladder else 'NO'}"
+        self.ladder_toggle.label = (
+            f"Default ladder: {'YES' if self.create_default_ladder else 'NO'}"
+        )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker_id:
@@ -393,7 +465,9 @@ class SetupView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Setup timed out. Run `/setup` again when ready.", embed=None, view=None)
+                await self.message.edit(
+                    content="Setup timed out. Run `/setup` again when ready.", embed=None, view=None
+                )
             except discord.HTTPException:
                 pass
 
@@ -404,7 +478,9 @@ class SetupView(view_util.ErrorHandledView):
         if tmpl.ranks:
             ladder_line = f"**Rank ladder:** supplied by the {tmpl.label} template"
         else:
-            ladder_line = f"**Default rank ladder:** {'yes' if self.create_default_ladder else 'no'}"
+            ladder_line = (
+                f"**Default rank ladder:** {'yes' if self.create_default_ladder else 'no'}"
+            )
         lines = (
             f"**Template:** {tmpl.label} — {tmpl.description}\n"
             f"**Features:** {features}\n"
@@ -414,30 +490,58 @@ class SetupView(view_util.ErrorHandledView):
         )
         return voice.embed("Setup", lines, minimal=self.minimal_mode)
 
-    @discord.ui.select(placeholder="Choose a starting template", min_values=1, max_values=1, options=TEMPLATE_OPTIONS, row=0)
-    async def template_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
+    @discord.ui.select(
+        placeholder="Choose a starting template",
+        min_values=1,
+        max_values=1,
+        options=TEMPLATE_OPTIONS,
+        row=0,
+    )
+    async def template_select(
+        self, interaction: discord.Interaction, select: discord.ui.Select
+    ) -> None:
         self.template_key = select.values[0]
         await interaction.response.edit_message(embed=self.summary_embed())
 
-    @discord.ui.select(placeholder="Choose features to enable", min_values=0, max_values=len(FEATURE_OPTIONS), options=FEATURE_OPTIONS, row=1)
-    async def feature_select(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
+    @discord.ui.select(
+        placeholder="Choose features to enable",
+        min_values=0,
+        max_values=len(FEATURE_OPTIONS),
+        options=FEATURE_OPTIONS,
+        row=1,
+    )
+    async def feature_select(
+        self, interaction: discord.Interaction, select: discord.ui.Select
+    ) -> None:
         self.features = set(select.values)
         await interaction.response.edit_message(embed=self.summary_embed())
 
-    @discord.ui.select(cls=discord.ui.ChannelSelect, placeholder="Audit log channel (optional)",
-                        channel_types=[discord.ChannelType.text], min_values=0, max_values=1, row=2)
-    async def audit_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect) -> None:
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        placeholder="Audit log channel (optional)",
+        channel_types=[discord.ChannelType.text],
+        min_values=0,
+        max_values=1,
+        row=2,
+    )
+    async def audit_select(
+        self, interaction: discord.Interaction, select: discord.ui.ChannelSelect
+    ) -> None:
         self.audit_channel_id = select.values[0].id if select.values else None
         await interaction.response.edit_message(embed=self.summary_embed())
 
     @discord.ui.button(label="Minimal mode: OFF", style=discord.ButtonStyle.secondary, row=3)
-    async def minimal_toggle(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def minimal_toggle(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         self.minimal_mode = not self.minimal_mode
         self._sync_labels()
         await interaction.response.edit_message(embed=self.summary_embed(), view=self)
 
     @discord.ui.button(label="Default ladder: NO", style=discord.ButtonStyle.secondary, row=3)
-    async def ladder_toggle(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def ladder_toggle(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         self.create_default_ladder = not self.create_default_ladder
         self._sync_labels()
         await interaction.response.edit_message(embed=self.summary_embed(), view=self)
@@ -445,9 +549,13 @@ class SetupView(view_util.ErrorHandledView):
     @discord.ui.button(label="Finish", style=discord.ButtonStyle.success, row=4)
     async def finish(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         created_ranks, created_channels = await apply_setup_selection(
-            self.bot, self.guild,
-            minimal_mode=self.minimal_mode, audit_channel_id=self.audit_channel_id, features=self.features,
-            template_key=self.template_key, create_default_ladder=self.create_default_ladder,
+            self.bot,
+            self.guild,
+            minimal_mode=self.minimal_mode,
+            audit_channel_id=self.audit_channel_id,
+            features=self.features,
+            template_key=self.template_key,
+            create_default_ladder=self.create_default_ladder,
         )
 
         for item in self.children:
@@ -455,12 +563,16 @@ class SetupView(view_util.ErrorHandledView):
         self.stop()
         note = _format_creation_note(created_ranks, created_channels)
         await note_audit(self.bot, self.guild.id, f"Setup wizard: configuration saved.{note}")
-        await interaction.response.edit_message(content=f"Configuration saved.{note}", embed=None, view=None)
+        await interaction.response.edit_message(
+            content=f"Configuration saved.{note}", embed=None, view=None
+        )
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, row=4)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.stop()
-        await interaction.response.edit_message(content="Setup cancelled. Nothing was changed.", embed=None, view=None)
+        await interaction.response.edit_message(
+            content="Setup cancelled. Nothing was changed.", embed=None, view=None
+        )
 
 
 class RankLadderModal(discord.ui.Modal, title="Custom Rank Ladder"):
@@ -481,7 +593,8 @@ class RankLadderModal(discord.ui.Modal, title="Custom Rank Ladder"):
         roles, problems = await _validate_and_apply_custom_ladder(self.bot, self.guild, names)
         if problems:
             await interaction.response.send_message(
-                voice.decline("Ladder wasn't applied — " + "; ".join(problems) + "."), ephemeral=True
+                voice.decline("Ladder wasn't applied — " + "; ".join(problems) + "."),
+                ephemeral=True,
             )
             return
         assert roles is not None
@@ -499,8 +612,11 @@ async def ladder_embed(bot: commands.Bot, guild: discord.Guild) -> discord.Embed
     assert bot.db is not None
     ladder = await load_ladder(bot.db, guild.id)
     body = (
-        "\n".join(f"{entry.position}. {entry.name}" for entry in sorted(ladder, key=lambda e: e.position))
-        if ladder else "No ladder configured yet."
+        "\n".join(
+            f"{entry.position}. {entry.name}" for entry in sorted(ladder, key=lambda e: e.position)
+        )
+        if ladder
+        else "No ladder configured yet."
     )
     return voice.embed("Current Rank Ladder", body, minimal=await minimal_mode(bot.db, guild.id))
 
@@ -511,7 +627,9 @@ class RankLadderView(view_util.ErrorHandledView):
     slash-command fallback (a `ranks:` argument applies directly and never
     opens this view) — see repo convention in tests/test_cogs_teams.py."""
 
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 180.0):
+    def __init__(
+        self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 180.0
+    ):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.guild = guild
@@ -531,7 +649,11 @@ class RankLadderView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Ladder editor timed out. Reopen it from the Ranks button, or run `/admin ranks` again.", embed=None, view=None)
+                await self.message.edit(
+                    content="Ladder editor timed out. Reopen it from the Ranks button, or run `/admin ranks` again.",
+                    embed=None,
+                    view=None,
+                )
             except discord.HTTPException:
                 pass
 
@@ -551,23 +673,32 @@ class SetupCog(commands.Cog, name="SetupCog"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setup", description="Open the guided setup wizard: pick a template, features, and options.")
+    @app_commands.command(
+        name="setup",
+        description="Open the guided setup wizard: pick a template, features, and options.",
+    )
     @require_admin()
     async def setup_command(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         assert guild is not None
         view = SetupView(self.bot, guild, interaction.user.id)
-        await interaction.response.send_message(embed=view.summary_embed(), view=view, ephemeral=True)
+        await interaction.response.send_message(
+            embed=view.summary_embed(), view=view, ephemeral=True
+        )
         view.message = await interaction.original_response()
 
-    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return
         await view_util.handle_app_command_error(interaction, error, log)
 
 
 class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
-    guild_name_input: discord.ui.TextInput = discord.ui.TextInput(label="Type this server's exact name to confirm")
+    guild_name_input: discord.ui.TextInput = discord.ui.TextInput(
+        label="Type this server's exact name to confirm"
+    )
 
     def __init__(self, bot: commands.Bot, guild: discord.Guild):
         super().__init__()
@@ -578,7 +709,9 @@ class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         if self.guild_name_input.value != self.guild.name:
             await interaction.response.send_message(
-                voice.decline("That didn't match the server name exactly. Teardown cancelled — nothing changed."),
+                voice.decline(
+                    "That didn't match the server name exactly. Teardown cancelled — nothing changed."
+                ),
                 ephemeral=True,
             )
             return
@@ -591,7 +724,9 @@ class TeardownConfirmModal(discord.ui.Modal, title="Confirm Teardown"):
 
 
 class TeardownConfirmView(view_util.ErrorHandledView):
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 60.0):
+    def __init__(
+        self, bot: commands.Bot, guild: discord.Guild, invoker_id: int, timeout: float = 60.0
+    ):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.guild = guild
@@ -606,7 +741,9 @@ class TeardownConfirmView(view_util.ErrorHandledView):
             item.disabled = True  # type: ignore[attr-defined]
         if self.message is not None:
             try:
-                await self.message.edit(content="Teardown timed out. Nothing was changed.", view=None)
+                await self.message.edit(
+                    content="Teardown timed out. Nothing was changed.", view=None
+                )
             except discord.HTTPException:
                 pass
 
@@ -637,7 +774,11 @@ async def _teardown(bot: commands.Bot, guild: discord.Guild) -> str:
                 await role.delete(reason="Adjutant: guild teardown")
             removed_teams += 1
         except discord.Forbidden:
-            log.warning("Missing permission to remove team %s during teardown of guild %s", team["name"], guild.id)
+            log.warning(
+                "Missing permission to remove team %s during teardown of guild %s",
+                team["name"],
+                guild.id,
+            )
 
     bot_ranks = await bot.db.execute_fetchall(
         "SELECT * FROM ranks WHERE guild_id = ? AND bot_created = 1", (guild.id,)
@@ -650,7 +791,11 @@ async def _teardown(bot: commands.Bot, guild: discord.Guild) -> str:
                 await role.delete(reason="Adjutant: guild teardown")
                 removed_ranks += 1
             except discord.Forbidden:
-                log.warning("Missing permission to remove rank role %s during teardown of guild %s", rank["name"], guild.id)
+                log.warning(
+                    "Missing permission to remove rank role %s during teardown of guild %s",
+                    rank["name"],
+                    guild.id,
+                )
 
     # guilds row deletion cascades to ranks/permissions/role_grants/teams/
     # events/maps/server_links (all FK ON DELETE CASCADE). incidents is

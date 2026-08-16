@@ -28,11 +28,20 @@ log = logging.getLogger(__name__)
 # services/config.py's FEATURE_KEYS (Discord-free, safe to import here) so
 # at least the *set* of features can't drift out of sync; only the display
 # labels are hand-kept identical.
-_ADMIN_FEATURE_LABELS = {"teams": "Teams", "events": "Events", "map": "Map", "serverlink": "Server Link"}
+_ADMIN_FEATURE_LABELS = {
+    "teams": "Teams",
+    "events": "Events",
+    "map": "Map",
+    "serverlink": "Server Link",
+}
 _ADMIN_FEATURE_CHOICES = [
-    app_commands.Choice(name=_ADMIN_FEATURE_LABELS[key], value=key) for key in config_service.FEATURE_KEYS
+    app_commands.Choice(name=_ADMIN_FEATURE_LABELS[key], value=key)
+    for key in config_service.FEATURE_KEYS
 ]
-_ADMIN_ON_OFF_CHOICES = [app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")]
+_ADMIN_ON_OFF_CHOICES = [
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+]
 
 # 5-call burst, then one refill every 12s (~5/min steady state) per
 # (guild, user, command). Deliberately generous — this guards against abuse
@@ -40,7 +49,9 @@ _ADMIN_ON_OFF_CHOICES = [app_commands.Choice(name="on", value="on"), app_command
 _LIMITER = ratelimit_service.TokenBucketLimiter(capacity=5, refill_seconds=12.0)
 
 
-async def fetchone(db: aiosqlite.Connection, query: str, params: tuple = ()) -> aiosqlite.Row | None:
+async def fetchone(
+    db: aiosqlite.Connection, query: str, params: tuple = ()
+) -> aiosqlite.Row | None:
     async with db.execute(query, params) as cur:
         return await cur.fetchone()
 
@@ -63,10 +74,14 @@ async def note_audit(bot: commands.Bot, guild_id: int, message: str) -> None:
     try:
         await channel.send(message)
     except discord.HTTPException:
-        log.warning("Failed to post audit note to channel %s in guild %s", row["audit_channel"], guild_id)
+        log.warning(
+            "Failed to post audit note to channel %s in guild %s", row["audit_channel"], guild_id
+        )
 
 
-async def log_incident(bot: commands.Bot, guild_id: int, user_id: int, kind: str, detail: str = "") -> None:
+async def log_incident(
+    bot: commands.Bot, guild_id: int, user_id: int, kind: str, detail: str = ""
+) -> None:
     """Record a permission-denial or rate-limit hit, and mirror it to the
     audit channel if one is configured."""
     assert bot.db is not None
@@ -105,7 +120,11 @@ async def _check_admin(interaction: discord.Interaction) -> bool:
     from .roles import decline_admin_only, is_guild_admin
 
     member = interaction.user
-    if interaction.guild is not None and isinstance(member, discord.Member) and is_guild_admin(member):
+    if (
+        interaction.guild is not None
+        and isinstance(member, discord.Member)
+        and is_guild_admin(member)
+    ):
         return True
     await decline_admin_only(interaction)
     return False
@@ -133,7 +152,9 @@ async def check_rate_limit(interaction: discord.Interaction, key: str) -> bool:
     if _LIMITER.allow(bucket_key):
         return True
     if interaction.guild_id is not None:
-        await log_incident(interaction.client, interaction.guild_id, interaction.user.id, "rate_limit", detail=key)
+        await log_incident(
+            interaction.client, interaction.guild_id, interaction.user.id, "rate_limit", detail=key
+        )
     await interaction.response.send_message(
         voice.decline("That's being used a touch too often. Give it a moment and try again."),
         ephemeral=True,
@@ -178,18 +199,24 @@ class AdminCog(
 
     async def _missing_cog(self, interaction: discord.Interaction, feature: str) -> None:
         await interaction.response.send_message(
-            voice.broken(f"{feature} isn't loaded right now.", "Try again shortly, or flag an admin."),
+            voice.broken(
+                f"{feature} isn't loaded right now.", "Try again shortly, or flag an admin."
+            ),
             ephemeral=True,
         )
 
     # -- teams ----------------------------------------------------------
 
-    @app_commands.command(name="team-disband", description="Raw fallback: disband a team without the panel button.")
+    @app_commands.command(
+        name="team-disband", description="Raw fallback: disband a team without the panel button."
+    )
     @app_commands.describe(
         name="Team name",
         confirm="Skip the button confirmation and disband immediately — for when components aren't working",
     )
-    async def team_disband(self, interaction: discord.Interaction, name: str, confirm: bool = False) -> None:
+    async def team_disband(
+        self, interaction: discord.Interaction, name: str, confirm: bool = False
+    ) -> None:
         if not await _check_permission(interaction, "teams.manage"):
             return
         cog = self._get_cog("TeamsCog")
@@ -200,9 +227,14 @@ class AdminCog(
 
     # -- ranks ------------------------------------------------------------
 
-    @app_commands.command(name="rank-revoke", description="Raw fallback: revoke a granted role without the Revoke button.")
+    @app_commands.command(
+        name="rank-revoke",
+        description="Raw fallback: revoke a granted role without the Revoke button.",
+    )
     @rate_limited()
-    async def rank_revoke(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role) -> None:
+    async def rank_revoke(
+        self, interaction: discord.Interaction, member: discord.Member, role: discord.Role
+    ) -> None:
         if not await _check_permission(interaction, "roles.manage"):
             return
         cog = self._get_cog("RolesCog")
@@ -213,7 +245,9 @@ class AdminCog(
 
     # -- events -------------------------------------------------------------
 
-    @app_commands.command(name="event-cancel", description="Raw fallback: cancel an event without the manage panel.")
+    @app_commands.command(
+        name="event-cancel", description="Raw fallback: cancel an event without the manage panel."
+    )
     @app_commands.describe(event_id="Event id, from /event")
     async def event_cancel(self, interaction: discord.Interaction, event_id: int) -> None:
         cog = self._get_cog("EventsCog")
@@ -222,7 +256,10 @@ class AdminCog(
             return
         await cog.cancel(interaction, event_id=event_id)
 
-    @app_commands.command(name="event-teardown", description="Raw fallback: tear down an event without the manage panel.")
+    @app_commands.command(
+        name="event-teardown",
+        description="Raw fallback: tear down an event without the manage panel.",
+    )
     @app_commands.describe(event_id="Event id, from /event")
     async def event_teardown(self, interaction: discord.Interaction, event_id: int) -> None:
         cog = self._get_cog("EventsCog")
@@ -239,7 +276,10 @@ class AdminCog(
     @app_commands.default_permissions(administrator=True)
     @rate_limited()
     async def feature(
-        self, interaction: discord.Interaction, feature: app_commands.Choice[str], state: app_commands.Choice[str]
+        self,
+        interaction: discord.Interaction,
+        feature: app_commands.Choice[str],
+        state: app_commands.Choice[str],
     ) -> None:
         if not await _check_admin(interaction):
             return
@@ -249,11 +289,15 @@ class AdminCog(
             return
         await cog.feature(interaction, feature, state)
 
-    @app_commands.command(name="audit-channel", description="Raw fallback: set or clear the audit log channel.")
+    @app_commands.command(
+        name="audit-channel", description="Raw fallback: set or clear the audit log channel."
+    )
     @app_commands.describe(channel="Channel to use for audit notes — omit to clear")
     @app_commands.default_permissions(administrator=True)
     @rate_limited()
-    async def audit_channel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
+    async def audit_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    ) -> None:
         if not await _check_admin(interaction):
             return
         cog = self._get_cog("ConfigCog")
@@ -267,7 +311,9 @@ class AdminCog(
     @app_commands.choices(state=_ADMIN_ON_OFF_CHOICES)
     @app_commands.default_permissions(administrator=True)
     @rate_limited()
-    async def minimal(self, interaction: discord.Interaction, state: app_commands.Choice[str]) -> None:
+    async def minimal(
+        self, interaction: discord.Interaction, state: app_commands.Choice[str]
+    ) -> None:
         if not await _check_admin(interaction):
             return
         cog = self._get_cog("ConfigCog")
@@ -276,8 +322,13 @@ class AdminCog(
             return
         await cog.minimal(interaction, state)
 
-    @app_commands.command(name="permission", description="Raw fallback: set the minimum rank required for a bot permission.")
-    @app_commands.describe(key="Permission key, e.g. teams.manage", min_rank="Minimum ladder position required")
+    @app_commands.command(
+        name="permission",
+        description="Raw fallback: set the minimum rank required for a bot permission.",
+    )
+    @app_commands.describe(
+        key="Permission key, e.g. teams.manage", min_rank="Minimum ladder position required"
+    )
     @app_commands.default_permissions(administrator=True)
     @rate_limited()
     async def permission(self, interaction: discord.Interaction, key: str, min_rank: int) -> None:
@@ -289,7 +340,10 @@ class AdminCog(
             return
         await cog.permission(interaction, key, min_rank)
 
-    @app_commands.command(name="reset", description="Raw fallback: restore default permission thresholds and minimal mode.")
+    @app_commands.command(
+        name="reset",
+        description="Raw fallback: restore default permission thresholds and minimal mode.",
+    )
     @app_commands.default_permissions(administrator=True)
     async def reset(self, interaction: discord.Interaction) -> None:
         if not await _check_admin(interaction):
@@ -307,7 +361,9 @@ class AdminCog(
     # circular — same rule _check_admin/_check_permission already follow
     # for roles.py.
 
-    @app_commands.command(name="config-show", description="Raw fallback: read the guild's full configuration as text.")
+    @app_commands.command(
+        name="config-show", description="Raw fallback: read the guild's full configuration as text."
+    )
     @app_commands.default_permissions(administrator=True)
     async def config_show(self, interaction: discord.Interaction) -> None:
         """The Config *button* is itself a component, so if components are
@@ -326,7 +382,10 @@ class AdminCog(
             embed=voice.embed("Configuration", lines, minimal=minimal), ephemeral=True
         )
 
-    @app_commands.command(name="preflight", description="Raw fallback: permissions/role-hierarchy preflight without the Diagnostics button.")
+    @app_commands.command(
+        name="preflight",
+        description="Raw fallback: permissions/role-hierarchy preflight without the Diagnostics button.",
+    )
     @app_commands.default_permissions(administrator=True)
     async def preflight(self, interaction: discord.Interaction) -> None:
         if not await _check_admin(interaction):
@@ -336,10 +395,17 @@ class AdminCog(
         from .setup import _preflight_embed
 
         minimal = await minimal_mode(self.bot.db, guild.id)
-        await interaction.response.send_message(embed=_preflight_embed(guild, minimal=minimal), ephemeral=True)
+        await interaction.response.send_message(
+            embed=_preflight_embed(guild, minimal=minimal), ephemeral=True
+        )
 
-    @app_commands.command(name="ranks", description="Raw fallback: view or replace the rank ladder without the Ranks button.")
-    @app_commands.describe(ranks="Comma-separated ladder, lowest first — omit to view the current ladder.")
+    @app_commands.command(
+        name="ranks",
+        description="Raw fallback: view or replace the rank ladder without the Ranks button.",
+    )
+    @app_commands.describe(
+        ranks="Comma-separated ladder, lowest first — omit to view the current ladder."
+    )
     @app_commands.default_permissions(administrator=True)
     @rate_limited()
     async def ranks(self, interaction: discord.Interaction, ranks: str = "") -> None:
@@ -354,18 +420,25 @@ class AdminCog(
             applied, problems = await _validate_and_apply_custom_ladder(self.bot, guild, names)
             if problems:
                 await interaction.response.send_message(
-                    voice.decline("Ladder wasn't applied — " + "; ".join(problems) + "."), ephemeral=True
+                    voice.decline("Ladder wasn't applied — " + "; ".join(problems) + "."),
+                    ephemeral=True,
                 )
                 return
             assert applied is not None
             await interaction.response.send_message(
-                f"Ladder updated, junior to senior: {', '.join(r.name for r in applied)}.", ephemeral=True
+                f"Ladder updated, junior to senior: {', '.join(r.name for r in applied)}.",
+                ephemeral=True,
             )
             return
 
-        await interaction.response.send_message(embed=await ladder_embed(self.bot, guild), ephemeral=True)
+        await interaction.response.send_message(
+            embed=await ladder_embed(self.bot, guild), ephemeral=True
+        )
 
-    @app_commands.command(name="setup-quick", description="Raw fallback: configure without the wizard UI — scriptable one-shot setup.")
+    @app_commands.command(
+        name="setup-quick",
+        description="Raw fallback: configure without the wizard UI — scriptable one-shot setup.",
+    )
     @app_commands.describe(
         template="Starting template: minimal, vanilla, or milsim. Omit for none.",
         features="Comma-separated: teams, events, map, serverlink (omit for none)",
@@ -414,15 +487,21 @@ class AdminCog(
             template_key = template.strip().lower()
 
         created_ranks, created_channels = await apply_setup_selection(
-            self.bot, guild,
-            minimal_mode=minimal_mode, audit_channel_id=audit_channel.id if audit_channel else None, features=chosen,
-            template_key=template_key, create_default_ladder=create_default_ladder,
+            self.bot,
+            guild,
+            minimal_mode=minimal_mode,
+            audit_channel_id=audit_channel.id if audit_channel else None,
+            features=chosen,
+            template_key=template_key,
+            create_default_ladder=create_default_ladder,
         )
         note = _format_creation_note(created_ranks, created_channels)
         await note_audit(self.bot, guild.id, f"Setup (quick): configuration saved.{note}")
         await interaction.response.send_message(f"Configuration saved.{note}", ephemeral=True)
 
-    @app_commands.command(name="teardown", description="Remove all bot-created roles/categories for this guild.")
+    @app_commands.command(
+        name="teardown", description="Remove all bot-created roles/categories for this guild."
+    )
     @app_commands.default_permissions(administrator=True)
     async def teardown(self, interaction: discord.Interaction) -> None:
         if not await _check_admin(interaction):
@@ -445,8 +524,12 @@ class AdminCog(
             return
         is_admin = member.guild_permissions.administrator or member.id == guild.owner_id
         if not is_admin:
-            await log_incident(self.bot, guild.id, member.id, "permission_denied", detail="admin incidents")
-            await interaction.response.send_message(voice.decline("That's an admin-only ledger."), ephemeral=True)
+            await log_incident(
+                self.bot, guild.id, member.id, "permission_denied", detail="admin incidents"
+            )
+            await interaction.response.send_message(
+                voice.decline("That's an admin-only ledger."), ephemeral=True
+            )
             return
 
         assert self.bot.db is not None
@@ -456,15 +539,20 @@ class AdminCog(
         minimal = await minimal_mode(self.bot.db, guild.id)
         if not rows:
             await interaction.response.send_message(
-                embed=voice.embed("Incidents", "Clean sheet — nothing logged.", minimal=minimal), ephemeral=True
+                embed=voice.embed("Incidents", "Clean sheet — nothing logged.", minimal=minimal),
+                ephemeral=True,
             )
             return
-        lines = "\n".join(f"`{r['at']}` **{r['kind']}** <@{r['user_id']}> {r['detail']}".strip() for r in rows)
+        lines = "\n".join(
+            f"`{r['at']}` **{r['kind']}** <@{r['user_id']}> {r['detail']}".strip() for r in rows
+        )
         await interaction.response.send_message(
             embed=voice.embed("Recent Incidents", lines, minimal=minimal), ephemeral=True
         )
 
-    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         if isinstance(error, app_commands.CheckFailure):
             return
         await view_util.handle_app_command_error(interaction, error, log)

@@ -8,8 +8,8 @@ hand them here.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Iterable, Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,11 +26,11 @@ class RankEntry:
 # default five-rung ladder (Recruit=0 .. Command=4), but any ladder works —
 # these are just sensible starting minimums.
 DEFAULT_PERMISSIONS: Mapping[str, int] = {
-    "map.edit": 2,       # NCO
+    "map.edit": 2,  # NCO
     "events.create": 2,  # NCO
-    "teams.manage": 3,   # Officer
-    "setup.run": 4,      # Command (setup is also admin-gated separately)
-    "roles.manage": 4,   # Command — granting/revoking rank roles, editing the ladder
+    "teams.manage": 3,  # Officer
+    "setup.run": 4,  # Command (setup is also admin-gated separately)
+    "roles.manage": 4,  # Command — granting/revoking rank roles, editing the ladder
 }
 
 # A permission key with neither a guild override nor a built-in default is
