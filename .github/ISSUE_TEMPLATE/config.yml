@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How the backlog works
+    url: https://github.com/Detcader101/reforger-adjutant/blob/main/docs/BACKLOG.md
+    about: How work is picked up, labelled, and moved. Read before claiming an issue.
+  - name: Contributing guide
+    url: https://github.com/Detcader101/reforger-adjutant/blob/main/CONTRIBUTING.md
+    about: Setup, the rules that aren't negotiable, and the PR flow.

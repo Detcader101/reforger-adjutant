@@ -1,0 +1,37 @@
+name: Chore / maintenance
+description: Tooling, CI, docs, deploy, refactors, tech debt.
+labels: ["type: chore", "status: needs triage"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: What it unblocks, or what goes wrong if it's left alone.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: A checkable definition, so whoever picks it up knows where to stop.
+      placeholder: |
+        - [ ] `ruff` in `requirements-dev.txt`
+        - [ ] lint job in the tests workflow
+        - [ ] existing violations fixed or explicitly ignored
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: migration
+    attributes:
+      label: Database
+      options:
+        - label: This needs a migration (claim the next free number in a comment before writing it)

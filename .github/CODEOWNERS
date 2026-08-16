@@ -1,0 +1,10 @@
+# Every PR requests a review from the maintainer by default.
+* @Detcader101
+
+# Load-bearing decisions — these files encode agreements, not just code.
+/docs/SPEC.md                       @Detcader101
+/docs/SERVER_INTEGRATION.md         @Detcader101
+/adjutant/voice.py                  @Detcader101
+/adjutant/migrations/               @Detcader101
+/tests/test_command_metadata.py     @Detcader101
+/deploy/                            @Detcader101

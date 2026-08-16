@@ -1,0 +1,82 @@
+name: Bug report
+description: Something the bot does wrong, or refuses to do.
+labels: ["type: bug", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: run `python -m pytest` and, if you can,
+        `.venv\Scripts\python.exe tools\probe_guild.py` against the affected
+        guild — its output answers half of what's asked below.
+
+        **Never paste a bot token, an `.env` file, or private channel content.**
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What the bot did, and what you expected instead.
+      placeholder: |
+        Ran `/team Alpha`. The bot replied "..." and no category was created.
+        I expected a locked Alpha category with a text and a voice channel.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: From a fresh guild if you can. Say whether `/setup` had been run.
+      placeholder: |
+        1. `/setup` with the milsim template
+        2. `/team Alpha`
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area
+      description: Best guess is fine — triage will correct it.
+      options:
+        - setup — /setup, /teardown, templates
+        - ranks — rank ladder, grants, expiry
+        - teams — team roles and locked channels
+        - events — event organiser, signups, reminders
+        - map — /map rendering and markers
+        - serverlink — A2S / RCON / telemetry feed
+        - admin — moderation, audit, rate limits
+        - infra — db, migrations, cache, health
+        - not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: serverlink
+    attributes:
+      label: Is a game server linked?
+      description: Server-linked bugs behave differently from Discord-only ones.
+      options:
+        - "no — null backend (Discord only)"
+        - "yes — A2S"
+        - "yes — RCON"
+        - "yes — telemetry feed"
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: >
+        The bot logs a correlation ID with every error it shows a user — include
+        it, and the matching lines from the log. Redact ids you'd rather not share.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or BOT_GIT_SHA
+      description: On the deployed bot this is stamped into `.env`.

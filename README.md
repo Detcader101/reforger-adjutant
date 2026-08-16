@@ -30,3 +30,17 @@ and the server updates itself within ~2 minutes.
 See `docs/SPEC.md` for the feature spec, architecture, and the rules the bot
 lives by (opt-in everything, leak-proof team channels, courteous refusals,
 plain-spoken about problems).
+
+## Contributing
+
+Help is welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — setup, the
+rules that aren't negotiable, and the PR flow.
+
+The backlog is [Issues](https://github.com/Detcader101/reforger-adjutant/issues);
+[`docs/BACKLOG.md`](docs/BACKLOG.md) explains how work is triaged, claimed, and
+moved, and which areas can be worked in parallel without colliding. Issues
+labelled [`good first issue`](https://github.com/Detcader101/reforger-adjutant/labels/good%20first%20issue)
+are scoped to be finishable in one sitting.
+
+Note that merging to `main` deploys to the live bot within ~2 minutes — there is
+no staging gate, so everything goes through a PR.
